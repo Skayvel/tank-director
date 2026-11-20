@@ -16,8 +16,8 @@
 **服主**
 
 1. 确认依赖：MetaMod:Source + SourceMod 1.12 + [Left4DHooks](https://github.com/SilvDev/Left4DHooks) + SDKHooks / SDKTools。
-2. 下载 [TankRun-Control-Center-v2.2.8.zip](dist/TankRun-Control-Center-v2.2.8.zip)。
-3. 解压到游戏的 `left4dead2` 目录，得到：
+2. 下载 [v2.2.8 独立发行包](dist/TankRun-Control-Center-v2.2.8-full.zip)。包内附有 LICENSE、NOTICE、对应源码及[重新构建说明](SOURCE.md)。
+3. 解压到工作目录，把其中的 `addons` 合并到游戏的 `left4dead2/addons`，安装后应有：
 
    ```
    addons/sourcemod/plugins/tankdirector_menu.smx
