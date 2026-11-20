@@ -1,0 +1,26 @@
+# Python 缓存（import 本仓库脚本会生成，含本机绝对路径，不要提交）
+__pycache__/
+*.pyc
+
+# 编译产物
+*.smx
+*.spam
+
+# 本地构建输出（发布包在 dist/ 中，需提交）
+build/
+
+# SourceMod 编译器中间产物
+*.tmp
+
+# 编辑器
+.vscode/
+.idea/
+*.swp
+
+# 操作系统
+Thumbs.db
+.DS_Store
+
+# 本地测试配置（不要提交服务器凭据或私有路径）
+local/
+*.local.cfg

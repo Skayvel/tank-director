@@ -1,0 +1,107 @@
+Tank Director — L4D2 Tank Run Control Center
+Copyright (C) 2026 Tank Director contributors
+
+This product is licensed under the GNU General Public License, version 3
+or (at your option) any later version. See LICENSE for the full text.
+
+This product includes or links against third-party components. Their
+copyright notices and licenses are listed below. They are NOT relicensed
+by this project; each remains under its own license.
+
+================================================================================
+1. Third-party components
+================================================================================
+
+SourceMod / SourcePawn SDK (sourcemod.inc, sdktools.inc, sdkhooks.inc,
+dhooks.inc)
+    Copyright (C) 2004-2021 AlliedModders LLC. All rights reserved.
+    License: GNU GPL version 3.0, with AlliedModders special exceptions.
+    Usage  : compile-time #include; the compiled plugin also contains small
+             header-generated boilerplate (SharedPlugin / Extension autoload
+             structures and stock helpers) emitted from these headers.
+    License text: <https://github.com/alliedmodders/sourcemod/blob/master/licenses/LICENSE.txt>
+
+Left4DHooks (left4dhooks.inc)
+    Copyright (C) 2010 Michael "ProdigySim" Busby
+    Copyright (C) 2009 Igor "Downtown1" Smirnov
+    Copyright (C) 2012-2015 "Visor"
+    Copyright (C) 2015 "Attano"
+    Copyright (C) 2017 "Accelerator74"
+    Copyright (C) 2026 "SilverShot" / "Silvers"
+    License: GNU GPL version 3.0 (with AlliedModders linking exception text).
+    Usage  : compile-time #include; runtime dependency (left4dhooks.smx).
+             The compiled plugin contains the `__pl_l4dh` SharedPlugin
+             autoload structure generated from this header.
+    License text: <https://github.com/SilvDev/Left4DHooks>
+
+Dynamic Hooks extension (DHooks)
+    Copyright (C) 2021 AlliedModders LLC. All rights reserved.
+    License: GNU GPL version 3.0, with AlliedModders special exceptions.
+    Usage  : optional runtime dependency; `dhooks.inc` is a compile-time
+             include. The extension itself is NOT distributed with this
+             repository.
+
+L4DToolZ
+    License: none declared in the upstream repository at the time of this
+             audit (default: all rights reserved).
+    Usage  : optional external runtime dependency only. It is NOT included,
+             copied, patched or distributed by this repository. Documented
+             only as an optional way to raise the client slot limit.
+
+Valve / Left 4 Dead 2 (game files, models, animation data, engine signatures)
+    Copyright (C) Valve Corporation. All rights reserved.
+    Usage  : no game files are distributed. See section 3.
+
+================================================================================
+2. Relationship to the GPL
+================================================================================
+
+* This repository's own code is licensed GPL-3.0-or-later (see LICENSE).
+* SourceMod, Left4DHooks and DHooks are licensed GPL-3.0. GPL-3.0-or-later
+  may be used together with GPL-3.0 components; the combined distribution
+  is conveyed under GPL-3.0.
+* SourceMod's LICENSE.txt additionally permits derivative works (including
+  SourcePawn plugins) to be dual-licensed under "GPL v2 or any higher
+  version". Choosing GPL-3.0-or-later is consistent with that permission.
+* No third-party source code was copied into this repository. Third-party
+  material reaches the compiled plugin only through header inclusion
+  (declarations, plus the small autoload/stock boilerplate described above).
+
+================================================================================
+3. Reverse-engineering material and game content
+================================================================================
+
+`gamedata/tankrun_firstrock.txt` contains a 40-byte x86 instruction pattern
+with wildcards, used by the Dynamic Hooks extension to locate
+`CTankClaw::PrimaryAttack` in a specific build of `server.dll`.
+
+* It contains no game code, data files, assets, symbols or decompiled source.
+* It was derived from static analysis of a legitimately installed copy of the
+  game, for interoperability and modding purposes.
+* It is a short functional pattern rather than an expressive work. It is
+  nevertheless disclosed here so that redistributors can make their own
+  assessment.
+* The pattern is build-bound: the corresponding `server.dll` SHA256 is recorded
+  in the file and in `docs/compatibility/32-bit-baseline.md`.
+
+This repository does NOT contain:
+    - game binaries, VPK archives, models, materials or other game assets;
+    - decompiled code, disassembly dumps or analysis database exports;
+    - third-party plugin source code or binaries.
+
+================================================================================
+4. Trademarks
+================================================================================
+
+"Left 4 Dead 2", "Source", "Steam" and related marks are the property of
+Valve Corporation. "SourceMod", "SourcePawn", "MetaMod:Source" and related
+marks are the property of AlliedModders LLC. This project is not affiliated
+with or endorsed by Valve Corporation or AlliedModders LLC.
+
+================================================================================
+5. Warranty
+================================================================================
+
+This program is distributed in the hope that it will be useful, but WITHOUT
+ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS
+FOR A PARTICULAR PURPOSE. See the GNU General Public License for more details.

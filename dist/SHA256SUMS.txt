@@ -1,0 +1,6 @@
+﻿# Tank Run Control Center v2.2.8
+# released package, byte-identical to the 2026-11-20 build
+# generated: 2026-11-20 22:45:51
+07B63555DCEAF4A135A3BE6D62CFBF650FC0BC752662796A9C4547191319045B  TankRun-Control-Center-v2.2.8/addons/sourcemod/plugins/tankdirector_menu.smx
+BDA4CC9BAB44DC1ACA6EEA101F0DCCA7D226D8BFC585745FD23CC522D8EAFCCF  TankRun-Control-Center-v2.2.8/addons/sourcemod/gamedata/tankrun_firstrock.txt
+7661FCD83A041A7687E9EC46826CDB27A43EFA86E6170086165E72702931339E  TankRun-Control-Center-v2.2.8.zip
