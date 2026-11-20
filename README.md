@@ -147,6 +147,14 @@
 
 ---
 
+## AI 参与说明
+
+本项目在原生 Tank AI 代码分析辅助、SourcePawn 实现与审查、技术文档整理、构建结果比对及开源发布审计中使用过 AI 工具。AI 提供了研究和开发辅助，但其输出可能存在错误；相关结论不因 AI 参与而被视为已验证，尤其不能替代真实服务器上的行为测试。
+
+项目维护者负责采纳、修改和发布相关成果，并对版权及第三方许可进行核查。AI 工具不作为本项目的著作权人。社区贡献与第三方依赖的署名及许可分别按实际来源保留。
+
+---
+
 ## 致谢
 
 [SourceMod](https://www.sourcemod.net/) · [MetaMod:Source](https://www.sourcemm.net/) · [Left4DHooks](https://github.com/SilvDev/Left4DHooks) · [L4DToolZ](https://github.com/lakwsh/l4dtoolz) · [hl2sdk](https://github.com/alliedmodders/hl2sdk)
