@@ -14,6 +14,7 @@
 #undef REQUIRE_EXTENSIONS
 #include <dhooks>
 #define REQUIRE_EXTENSIONS
+#include "tankrun/tr_attacks.inc"
 #include "tankrun/tr_rock.inc"
 #include "tankrun/tr_status.inc"
 #include "tankrun/tr_menu.inc"
@@ -63,6 +64,8 @@ public void OnPluginStart()
         if (IsClientInGame(i))
         {
             SDKHook(i, SDKHook_OnTakeDamage, TR_OnTakeDamage);
+            SDKHook(i, SDKHook_PostThinkPost, TR_PostThinkRockView);
+            TR_ClearRockMotion(i);
         }
     }
 
@@ -244,6 +247,10 @@ void TR_StopTimers()
 
 public void TR_OnPluginConfigChanged(ConVar convar, const char[] oldValue, const char[] newValue)
 {
+    if ((convar == g_cvEnabled || convar == g_cvRockEnabled) && !convar.BoolValue)
+    {
+        for (int i = 1; i <= MaxClients; i++) TR_ClearRockMotion(i);
+    }
     if (!g_bSessionReady || g_bRestoringSession) return;
     for (int i = 0; i < TR_SESSION_EXTRA; i++)
     {
@@ -278,6 +285,8 @@ public void TR_OnPluginConfigChanged(ConVar convar, const char[] oldValue, const
 public void OnClientPutInServer(int client)
 {
     SDKHook(client, SDKHook_OnTakeDamage, TR_OnTakeDamage);
+    SDKHook(client, SDKHook_PostThinkPost, TR_PostThinkRockView);
+    TR_ClearRockMotion(client);
     if (!IsFakeClient(client))
     {
         TR_LogEvent("玩家进入服务器 #%d", client);

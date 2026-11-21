@@ -162,12 +162,23 @@ void ShowSectionMenu(int client, TR_Section section)
     char text[160];
     int draw = TR_EditDraw(client);
 
+    if (section == SEC_CLAW)
+    {
+        menu.AddItem("a:claw_idle", "未投石：拳种与范围");
+        menu.AddItem("a:claw_rock", "投石期间：拳种与范围");
+    }
+    else if (section == SEC_ROCK)
+    {
+        menu.AddItem("a:rock_types", "投石类型与视角锁定");
+    }
+
     for (int i = 0; i < g_iParamCount; i++)
     {
         if (g_iParamSection[i] != section)
         {
             continue;
         }
+        if (TR_AttackParamHasOwnMenu(g_ParamCVar[i])) continue;
         if (TR_IsTankRunMode() && (StrEqual(g_sParamName[i], "tankrun_spawn_mode")
             || g_iParamVField[i] == TRV_INTERVAL || g_iParamVField[i] == TRV_DOUBLE || g_iParamVField[i] == TRV_LIMIT)) continue;
         TR_ParamLabelValue(i, text, sizeof(text));
@@ -300,6 +311,16 @@ public int Handler_Section(Menu menu, MenuAction action, int client, int item)
 void TR_HandleSectionAction(int client, TR_Section section, const char[] info)
 {
     char message[192];
+    if (StrEqual(info, "a:claw_idle") || StrEqual(info, "a:claw_rock"))
+    {
+        ShowClawTypesMenu(client, StrEqual(info, "a:claw_rock") ? 1 : 0);
+        return;
+    }
+    if (StrEqual(info, "a:rock_types"))
+    {
+        ShowRockTypesMenu(client);
+        return;
+    }
     if (StrEqual(info, "a:refresh"))
     {
         if (section == SEC_RULES)
@@ -457,6 +478,150 @@ void TR_HandleSectionAction(int client, TR_Section section, const char[] info)
     }
     Format(message, sizeof(message), "未知操作：%s", info);
     TR_Chat(client, "%s", message);
+}
+
+bool TR_AttackParamHasOwnMenu(ConVar convar)
+{
+    if (convar == null) return false;
+    if (convar == g_cvRockTypes || convar == g_cvRockNoTurn || convar == g_cvRockRecovery) return true;
+    for (int i = 0; i < sizeof(g_cvClawTypes); i++)
+    {
+        if (convar == g_cvClawTypes[i] || convar == g_cvClawRange[i]) return true;
+    }
+    for (int i = 0; i < sizeof(g_cvRockView); i++)
+    {
+        if (convar == g_cvRockView[i]) return true;
+    }
+    return false;
+}
+
+void TR_WriteAttackMenuParam(int client, const char[] name, int value)
+{
+    int idx = TR_FindParamByName(name);
+    bool ok = TR_ParamWrite(idx, float(value));
+    if (ok) TR_SaveSettings();
+    else TR_Chat(client, "设置未生效：%s", name);
+}
+
+void ShowClawTypesMenu(int client, int phase)
+{
+    char title[128], name[96], key[8];
+    Format(title, sizeof(title), "%s：拳种与范围\n勾选要启用的普通拳种", TR_ClawPhaseNames[phase]);
+    Menu menu = TR_NewMenu(Handler_ClawTypes, title);
+    int draw = TR_EditDraw(client);
+    int mask = g_cvClawTypes[phase].IntValue;
+    // Each key includes its phase so a stale menu cannot edit the other rule.
+    for (int i = 0; i < sizeof(TR_ClawTypeNames); i++)
+    {
+        Format(key, sizeof(key), "%d%d", phase, i);
+        Format(name, sizeof(name), "[%s] %s", (mask & (1 << i)) != 0 ? "x" : " ", TR_ClawTypeNames[i]);
+        menu.AddItem(key, name, draw);
+    }
+    Format(key, sizeof(key), "%dr", phase);
+    TR_ParamLabelValue(TR_FindParamByName(TR_ClawRangeParams[phase]), name, sizeof(name));
+    menu.AddItem(key, name);
+    menu.Display(client, MENU_TIME_FOREVER);
+}
+
+public int Handler_ClawTypes(Menu menu, MenuAction action, int client, int item)
+{
+    if (action == MenuAction_End) delete menu;
+    else if (TR_CanOpen(client))
+    {
+        if (action == MenuAction_Cancel && item == MenuCancel_ExitBack) ShowSectionMenu(client, SEC_CLAW);
+        else if (action == MenuAction_Select)
+        {
+            char key[8];
+            menu.GetItem(item, key, sizeof(key));
+            int phase = key[0] - '0';
+            if (key[1] == 'r') ShowParamMenu(client, TR_FindParamByName(TR_ClawRangeParams[phase]));
+            else if (TR_CanEdit(client))
+            {
+                int mask = g_cvClawTypes[phase].IntValue ^ (1 << (key[1] - '0'));
+                TR_WriteAttackMenuParam(client, TR_ClawTypeParams[phase], mask);
+                ShowClawTypesMenu(client, phase);
+            }
+        }
+    }
+    return 0;
+}
+
+void ShowRockTypesMenu(int client)
+{
+    Menu menu = TR_NewMenu(Handler_RockTypes, "投石类型与视角锁定\n勾选允许的动作，可单独配置每种视角");
+    int draw = TR_EditDraw(client);
+    int mask = g_cvRockTypes.IntValue;
+    char name[128], key[8];
+    Format(name, sizeof(name), "[%s] 不改变视角（全部锁定抬手前）", g_cvRockNoTurn.BoolValue ? "x" : " ");
+    menu.AddItem("no_turn", name, draw);
+    for (int i = 0; i < sizeof(TR_RockTypeNames); i++)
+    {
+        IntToString(i, key, sizeof(key));
+        Format(name, sizeof(name), "[%s] %s", (mask & (1 << i)) != 0 ? "x" : " ", TR_RockTypeNames[i]);
+        menu.AddItem(key, name, draw);
+    }
+    menu.AddItem("views", "分别设置四种投石视角");
+    TR_ParamLabelValue(TR_FindParamByName("tankrun_rock_recovery"), name, sizeof(name));
+    menu.AddItem("recover", name);
+    menu.Display(client, MENU_TIME_FOREVER);
+}
+
+public int Handler_RockTypes(Menu menu, MenuAction action, int client, int item)
+{
+    if (action == MenuAction_End) delete menu;
+    else if (TR_CanOpen(client))
+    {
+        if (action == MenuAction_Cancel && item == MenuCancel_ExitBack) ShowSectionMenu(client, SEC_ROCK);
+        else if (action == MenuAction_Select)
+        {
+            char key[16];
+            menu.GetItem(item, key, sizeof(key));
+            if (StrEqual(key, "views")) ShowRockViewsMenu(client);
+            else if (StrEqual(key, "recover")) ShowParamMenu(client, TR_FindParamByName("tankrun_rock_recovery"));
+            else if (TR_CanEdit(client))
+            {
+                if (StrEqual(key, "no_turn")) TR_WriteAttackMenuParam(client, "tankrun_rock_no_turn", g_cvRockNoTurn.BoolValue ? 0 : 1);
+                else TR_WriteAttackMenuParam(client, "tankrun_rock_types", g_cvRockTypes.IntValue ^ (1 << StringToInt(key)));
+                ShowRockTypesMenu(client);
+            }
+        }
+    }
+    return 0;
+}
+
+void ShowRockViewsMenu(int client)
+{
+    Menu menu = TR_NewMenu(Handler_RockViews, g_cvRockNoTurn.BoolValue
+        ? "各投石类型的视角\n不改变视角已开启，当前统一锁定抬手前"
+        : "各投石类型的视角\n选择一项可切换其模式");
+    int draw = TR_EditDraw(client);
+    char name[128], key[8];
+    for (int i = 0; i < sizeof(TR_RockTypeNames); i++)
+    {
+        IntToString(i, key, sizeof(key));
+        Format(name, sizeof(name), "%s：%s", TR_RockTypeNames[i], TR_RockViewNames[g_cvRockView[i].IntValue]);
+        menu.AddItem(key, name, draw);
+    }
+    menu.Display(client, MENU_TIME_FOREVER);
+}
+
+public int Handler_RockViews(Menu menu, MenuAction action, int client, int item)
+{
+    if (action == MenuAction_End) delete menu;
+    else if (TR_CanOpen(client))
+    {
+        if (action == MenuAction_Cancel && item == MenuCancel_ExitBack) ShowRockTypesMenu(client);
+        else if (action == MenuAction_Select && TR_CanEdit(client))
+        {
+            char key[8];
+            menu.GetItem(item, key, sizeof(key));
+            int type = StringToInt(key);
+            int next = (g_cvRockView[type].IntValue + 1) % sizeof(TR_RockViewNames);
+            TR_WriteAttackMenuParam(client, TR_RockViewParams[type], next);
+            ShowRockViewsMenu(client);
+        }
+    }
+    return 0;
 }
 
 void TR_ActionSpawn(int client, TR_SpawnMode mode)

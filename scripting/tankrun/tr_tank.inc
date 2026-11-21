@@ -841,6 +841,8 @@ public Action TR_OnTakeDamage(int victim, int &attacker, int &inflictor, float &
             }
             return Plugin_Handled;
         }
+        if (TR_IsSurvivor(victim) && (TR_IsClawDamageEntity(weapon) || TR_IsClawDamageEntity(inflictor))
+            && TR_ClawPolicyBlocks(attacker, GetGameTime(), victim)) return Plugin_Handled;
         float clawScale = g_cvClawScale.FloatValue;
         if (FloatAbs(clawScale - 1.0) > 0.001)
         {

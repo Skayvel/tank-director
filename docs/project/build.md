@@ -5,7 +5,7 @@
 ### 前置
 
 - SourceMod **1.12** 的 `spcomp.exe` 与**同一套** `include/`。
-- 源码：`scripting/tankdirector_menu.sp` + `scripting/tankrun/` 七个 `.inc` + `scripting/tankrun_capacity.sp` + `scripting/tankrun_capacity/` 两个 `.inc`（内嵌引入）。
+- 源码包括 `scripting/tankdirector_menu.sp`、`scripting/tankrun/` 下的 `.inc`，以及内嵌的 `scripting/tankrun_capacity.sp` 和 `scripting/tankrun_capacity/` 下的 `.inc`。
 
 ### 命令
 
