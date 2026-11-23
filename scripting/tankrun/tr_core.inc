@@ -15,9 +15,26 @@
 #include <sdkhooks>
 #include <left4dhooks>
 
-#define TR_VERSION      "2.2.8"
+#define TR_VERSION      "2.2.9-dev"
 #define TR_TAG          "[TankRun]"
-#define TR_PARAM_MAX    57
+#define TR_PARAM_MAX    68
+
+#define TR_CLAW_ALL        7
+#define TR_ROCK_ALL        15
+#define TR_ROCK_WINDUP_LIMIT  3.25
+#define TR_VIEW_NATIVE     0
+#define TR_VIEW_BEFORE     1
+#define TR_VIEW_AFTER      2
+
+char TR_ClawTypeNames[][] = {"上勾拳", "右勾拳", "左勾拳"};
+char TR_RockTypeNames[][] = {"下勾抛（斜抛）", "单手过肩抛", "腰侧抛", "双手过顶抛（高抛）"};
+char TR_RockViewNames[][] = {"原版跟随", "锁定抬手前视角", "锁定抬手后视角"};
+char TR_ClawPhaseNames[][] = {"未投石", "投石期间"};
+char TR_ClawTypeParams[][] = {"tankrun_claw_types_idle", "tankrun_claw_types_rock"};
+char TR_ClawRangeParams[][] = {"tankrun_claw_range_idle", "tankrun_claw_range_rock"};
+char TR_RockViewParams[][] = {
+    "tankrun_rock_view_undercut", "tankrun_rock_view_onehand", "tankrun_rock_view_hip", "tankrun_rock_view_twohand"
+};
 #define TR_QUICK_MAX    4
 #define TR_PRESET_SLOTS 8
 #define TR_BRIDGE       "tankrun_bridge"
@@ -105,6 +122,10 @@ ConVar g_cvTargetScan;
 ConVar g_cvRockEnabled;
 ConVar g_cvRockMinDelay;
 ConVar g_cvRockForceScale;
+ConVar g_cvRockTypes;
+ConVar g_cvRockView[sizeof(TR_RockViewParams)];
+ConVar g_cvRockNoTurn;
+ConVar g_cvRockRecovery;
 
 ConVar g_cvFirstRock;
 ConVar g_cvFirstRockTimeout;
@@ -112,6 +133,8 @@ ConVar g_cvFirstRockAttempts;
 
 ConVar g_cvClawScale;
 ConVar g_cvClawBlock;
+ConVar g_cvClawTypes[sizeof(TR_ClawTypeParams)];
+ConVar g_cvClawRange[sizeof(TR_ClawRangeParams)];
 ConVar g_cvTankDmgScale;
 ConVar g_cvFireScale;
 
@@ -1424,6 +1447,11 @@ void TR_CreateConVars()
     g_cvRockEnabled     = CreateConVar("tankrun_rock_enabled", "1", "允许原生投石（关闭=拦截投石激活）", FCVAR_NOTIFY);
     g_cvRockMinDelay    = CreateConVar("tankrun_rock_min_delay", "0.0", "插件侧投石最小间隔（秒，0=不限制）", FCVAR_NOTIFY);
     g_cvRockForceScale  = CreateConVar("tankrun_rock_force_scale", "1.0", "投石释放速度倍率（1=原版）", FCVAR_NOTIFY);
+    g_cvRockTypes       = CreateConVar("tankrun_rock_types", "15", "AI Tank 投石动作掩码：1=下勾 2=单手过肩 4=腰侧 8=双手过顶", FCVAR_NOTIFY, true, 0.0, true, float(TR_ROCK_ALL));
+    g_cvRockNoTurn      = CreateConVar("tankrun_rock_no_turn", "0", "不改变视角：所有启用的投石动作统一锁定抬手前视角", FCVAR_NOTIFY, true, 0.0, true, 1.0);
+    g_cvRockRecovery    = CreateConVar("tankrun_rock_recovery", "0.75", "离手或中断后保持投石阶段的秒数", FCVAR_NOTIFY, true, 0.0, true, 3.0);
+    for (int i = 0; i < sizeof(TR_RockViewParams); i++)
+        g_cvRockView[i] = CreateConVar(TR_RockViewParams[i], "0", "视角：0=原版 1=抬手前 2=抬手后", FCVAR_NOTIFY, true, 0.0, true, 2.0);
 
     g_cvFirstRock       = CreateConVar("tankrun_firstrock_enabled", "1", "首次接敌优先原版投石", FCVAR_NOTIFY);
     g_cvFirstRockTimeout = CreateConVar("tankrun_firstrock_timeout", "3.0", "首石窗口超时（秒）", FCVAR_NOTIFY);
@@ -1431,6 +1459,11 @@ void TR_CreateConVars()
 
     g_cvClawScale       = CreateConVar("tankrun_claw_damage_scale", "1.0", "Tank 拳击伤害倍率", FCVAR_NOTIFY);
     g_cvClawBlock       = CreateConVar("tankrun_claw_block_hit", "0", "阻挡 Tank 拳击命中判定（仅影响击退，风险项）", FCVAR_NOTIFY);
+    for (int i = 0; i < sizeof(TR_ClawTypeParams); i++)
+    {
+        g_cvClawTypes[i] = CreateConVar(TR_ClawTypeParams[i], "7", "AI Tank 拳种掩码：1=上勾 2=右勾 4=左勾", FCVAR_NOTIFY, true, 0.0, true, float(TR_CLAW_ALL));
+        g_cvClawRange[i] = CreateConVar(TR_ClawRangeParams[i], "0", "拳击允许的最大碰撞边界距离（0=原版）", FCVAR_NOTIFY, true, 0.0, true, 500.0);
+    }
     g_cvTankDmgScale    = CreateConVar("tankrun_tank_damage_scale", "1.0", "Tank 受到伤害倍率", FCVAR_NOTIFY);
     g_cvFireScale       = CreateConVar("tankrun_fire_damage_scale", "1.0", "Tank 火焰伤害倍率", FCVAR_NOTIFY);
 
@@ -1487,6 +1520,17 @@ void TR_RegisterParams()
     TR_Quick(p, 0.75, 1.0, 1.25, 1.5);
 
     // ---------------- M07 拳击 ----------------
+    char attackLabel[96];
+    for (int i = 0; i < sizeof(TR_ClawTypeParams); i++)
+    {
+        Format(attackLabel, sizeof(attackLabel), "%s拳种", TR_ClawPhaseNames[i]);
+        TR_AddParam(SEC_CLAW, TRK_PLUGIN, TR_ClawTypeParams[i], attackLabel,
+            0.0, float(TR_CLAW_ALL), 1.0, true, false, TRV_NONE, "1=上勾拳 2=右勾拳 4=左勾拳，累加多选，0=禁拳");
+        Format(attackLabel, sizeof(attackLabel), "%s拳击距离上限（单位）", TR_ClawPhaseNames[i]);
+        p = TR_AddParam(SEC_CLAW, TRK_PLUGIN, TR_ClawRangeParams[i], attackLabel,
+            0.0, 500.0, 2.0, false, false, TRV_NONE, "按三维碰撞边界距离限制起拳、伤害和击退；0=原版");
+        TR_Quick(p, 0.0, 30.0, 50.0, 80.0);
+    }
     p = TR_AddParam(SEC_CLAW, TRK_PLUGIN, "tankrun_claw_damage_scale", "拳击伤害倍率",
         0.05, 10.0, 0.05, false, true, TRV_NONE, "插件策略：拦截 Tank 攻击者的伤害并缩放");
     TR_Quick(p, 0.5, 1.0, 2.0, 5.0);
@@ -1522,6 +1566,19 @@ void TR_RegisterParams()
     TR_Quick(p, 0.5, 1.5, 2.5, 4.0);
 
     // ---------------- M05/M06 投石 ----------------
+    TR_AddParam(SEC_ROCK, TRK_PLUGIN, "tankrun_rock_types", "投石动作类型",
+        0.0, float(TR_ROCK_ALL), 1.0, true, false, TRV_NONE, "1=下勾抛 2=单手过肩抛 4=腰侧抛 8=双手过顶抛，累加多选，0=禁投");
+    TR_AddParam(SEC_ROCK, TRK_PLUGIN, "tankrun_rock_no_turn", "不改变视角",
+        0.0, 1.0, 1.0, true, false, TRV_NONE, "覆盖各投石类型的视角设置，统一锁定抬手前视角");
+    p = TR_AddParam(SEC_ROCK, TRK_PLUGIN, "tankrun_rock_recovery", "投石后视角保持（秒）",
+        0.0, 3.0, 0.05, false, false, TRV_NONE, "真实离手、动画中断或超时后延续视角锁定及投石阶段拳击设置");
+    TR_Quick(p, 0.0, 0.5, 0.75, 1.0);
+    for (int i = 0; i < sizeof(TR_RockViewParams); i++)
+    {
+        Format(attackLabel, sizeof(attackLabel), "%s视角", TR_RockTypeNames[i]);
+        TR_AddParam(SEC_ROCK, TRK_PLUGIN, TR_RockViewParams[i], attackLabel,
+            0.0, 2.0, 1.0, true, false, TRV_NONE, "0=原版跟随 1=锁定抬手前 2=锁定抬手后");
+    }
     p = TR_AddParam(SEC_ROCK, TRK_PLUGIN, "tankrun_rock_enabled", "允许原生投石",
         0.0, 1.0, 1.0, true, true, TRV_NONE, "关闭后拦截 CThrow 激活，Tank 无法投石（真实拦截）");
     TR_Quick(p, 0.0, 1.0);

@@ -49,6 +49,17 @@
 
 ## 3. Tank 普通拳击控制（SEC_CLAW）
 
+`未投石：拳种与范围` 与 `投石期间：拳种与范围` 各有一组多选和距离上限。上勾拳、右勾拳、左勾拳可任意组合。取消全部勾选会禁止该阶段的拳击。两种原版砸地动作沿用游戏选型，也遵守禁拳和距离上限。
+
+| 参数 | 默认值 | 含义 |
+|---|---:|---|
+| `tankrun_claw_types_idle` | `7` | 未投石拳种。上勾 `1`、右勾 `2`、左勾 `4`，累加多选，`0` 禁拳 |
+| `tankrun_claw_types_rock` | `7` | 投石期间拳种，使用同样的编码 |
+| `tankrun_claw_range_idle` | `0` | 未投石时，Tank 与幸存者三维碰撞边界之间的最大允许距离 |
+| `tankrun_claw_range_rock` | `0` | 投石期间的距离上限，`0` 保持游戏原版范围 |
+
+距离上限限制起拳、伤害和击退，使用完整 XYZ 距离。它可以缩短实际可命中的范围，游戏原有的起拳条件和武器碰撞依然决定可达距离。首石优先的禁拳规则在它自己的窗口内继续生效。
+
 插件参数：`tankrun_claw_damage_scale`、`tankrun_claw_block_hit`。
 原生参数：`tank_swing_range`、`tank_attack_range`、`tank_fist_radius`、`tank_swing_interval`、`tank_swing_fast_interval`、`tank_swing_miss_interval`、`tank_windup_time`、`tank_swing_duration`、`z_tank_attack_interval`。
 
@@ -61,6 +72,17 @@
 ---
 
 ## 4. Tank 投石控制（SEC_ROCK）
+
+`投石类型与视角锁定` 可以多选下勾斜抛、单手过肩、腰侧、双手过顶高抛，也可以全部取消以禁止 AI 投石。进入 `分别设置四种投石视角`，每种都可选原版跟随、锁定抬手前视角或锁定抬手后视角。开启 `不改变视角` 时，已勾选的抛法统一使用抬手前视角。各类型设置保留，关闭统一开关后继续使用。
+
+| 参数 | 默认值 | 含义 |
+|---|---:|---|
+| `tankrun_rock_types` | `15` | 下勾 `1`、单手过肩 `2`、腰侧 `4`、双手过顶 `8`，累加多选，`0` 禁投 |
+| `tankrun_rock_no_turn` | `0` | `1` 为不改变视角，统一使用抬手前视角 |
+| `tankrun_rock_view_undercut`、`tankrun_rock_view_onehand`、`tankrun_rock_view_hip`、`tankrun_rock_view_twohand` | `0` | `0` 原版跟随，`1` 抬手前，`2` 抬手后 |
+| `tankrun_rock_recovery` | `0.75` | 真实离手、投石动画中断或起手超时后，继续保持投石阶段的秒数 |
+
+投石拳击规则从原版抬手事件开始，持续到恢复时间结束。锁定启用时，Tank 在该窗口保持俯仰和朝向，恢复时间结束后以每秒最多 180° 逐步恢复转向。石头沿锁定的水平朝向出手，保留当次原版释放向量的竖直分量，再应用力度倍率。这里的投石类型指原版抛掷动作。两套配置仅作用于原生 AI Tank 的攻击路径，游戏内行为见[验收剧本](validation-playbook.md)。
 
 插件参数：`tankrun_rock_enabled`、`tankrun_rock_min_delay`、`tankrun_rock_force_scale`。
 原生参数：`z_tank_throw_interval`、`tank_throw_min_interval`、`z_tank_throw_fail_interval`、`tank_throw_allow_range`、`z_tank_throw_force`、`tank_throw_lead_time_factor`、`tank_throw_loft_rate`、`tank_throw_max_loft_angle`、`tank_throw_aim_error`、`tank_rock_overhead_percent`。

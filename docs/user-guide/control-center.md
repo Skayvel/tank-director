@@ -96,6 +96,8 @@ v2.2.7 起的行为：**引擎负责起手、预判与出手方向，插件负�
 - **投石总开关**：`tankrun_rock_enabled 0` 会真实拦截 `CThrow` 激活，Tank 无法投石。
 - **最小间隔**：`tankrun_rock_min_delay`，按每只 Tank 的真实释放时间计算。
 - **力度倍率**：`tankrun_rock_force_scale` 在 `OnRelease` 缩放真实释放速度。
+- 在 `Tank 投石控制 → 投石类型与视角锁定` 勾选原版抛法并分别设置视角。`不改变视角` 对所有已选抛法统一锁定抬手前视角。
+- 在 `Tank 普通拳击控制` 的两个阶段分别勾选上勾、右勾、左勾，并设置允许拳击的最远距离。投石抬手至离手或中断后的保持期使用投石期间设置。 [菜单与参数参考](menu-reference.md)
 - **拳击伤害倍率**：`tankrun_claw_damage_scale`。
 - **拳击命中阻挡**：`tankrun_claw_block_hit`，**风险项**，只影响击退。
 - **原生拳击/投石 ConVar**：一组 `tank_*`、`z_tank_*` 参数可读写并读回；其中一部分标注「效果未验证」。

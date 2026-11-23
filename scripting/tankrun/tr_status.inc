@@ -92,8 +92,9 @@ void TR_PrintStatus(int client)
     int connected = GetClientCount(false);
     TR_Reply(client, "客户端槽位：%d/%d | 剩余 %d | 交接保留 %d | 当前原版 Tank 上限 %d",
         connected, MaxClients, MaxClients - connected, TR_ReservedTankSlots(), TR_NativeTankLimit(nativeTanks));
-    TR_Reply(client, "首石优先：%s | 武器入口禁拳：%s | 投石瞄准：原版",
-        TR_FirstRockEnabled() ? "开" : "关", g_hFirstRockClawGate != null ? "已加载" : "未加载");
+    TR_Reply(client, "首石优先：%s | 武器入口禁拳：%s | 投石视角：%s",
+        TR_FirstRockEnabled() ? "开" : "关", g_hFirstRockClawGate != null ? "已加载" : "未加载",
+        g_cvRockNoTurn.BoolValue ? "不改变视角（统一抬手前）" : "按投石类型设置");
     TR_Reply(client, "累计：生成 %d（失败 %d）| 投石释放 %d | 投石拦截 %d+%d | 拳击 %d/%d | 首石成功 %d 超时 %d",
         g_iStatSpawns, g_iStatSpawnFail, g_iStatReleases, g_iStatThrowGateBlocked,
         g_iStatDelayedBlocked, g_iStatSwings, g_iStatHits, g_iStatFirstRockSuccess,
