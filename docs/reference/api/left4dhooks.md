@@ -1,6 +1,6 @@
 # 回调与 Native 参考（Left4DHooks / SourceMod）
 
-控制中心 v2.2.8 实际使用的公开接口。**本文只列源码里真实存在的调用**，每条附源码行号。未列出的接口没有被使用。
+控制中心 v2.2.11 实际使用的公开接口。**本文只列源码里真实存在的调用**。未列出的接口没有被使用。
 
 ## 概览
 
@@ -8,7 +8,7 @@
 |---|---:|---|
 | **本插件导出给其他插件的 native** | **0** | 控制中心不注册任何 native |
 | **本插件导出的 forward / 库标识** | **0** | 没有 `CreateGlobalForward` / `RegPluginLibrary` |
-| 实现的 Left4DHooks forward（被扩展调用） | **14** | Left4DHooks |
+| 实现的 Left4DHooks forward（被扩展调用） | **19** | Left4DHooks |
 | 处理的 SourceMod forward | 1 | `OnPlayerRunCmd` |
 | 调用的外部 native | 4 类 | Left4DHooks / SDKHooks |
 | 订阅的游戏事件 | 8 | SourceMod `HookEvent` |
@@ -71,9 +71,7 @@
 - 用途：**只记录**，不修改 `sequence`，永远返回 `Plugin_Continue`。
 - 记录内容：动作编号（761 = `ACT_HULK_THROW`，762 = `ACT_TANK_OVERHEAD_THROW`），每秒最多一条。
 
-> **重要版本变化**：v2.0.1–v2.2.6 曾在这里把拳击动作 763 改选为投石动作 761。**v2.2.7 起已移除该改选**，投石起手、目标预测、出手方向与碰撞都交还引擎，插件只负责近战保护与真实离手确认。v2.2.8 源码中不存在任何对 `sequence` 的写回。
->
-> 因此 `docs/tankrun-control-center.md` 第 5 节 M08 与 `docs/coordination/command-board.md` 中「首石策略覆盖动作：763 → 761」的验收口径**只适用于 v2.2.6 及更早**。当前版本不应期待这条日志。
+> **重要版本变化**：v2.0.1–v2.2.6 曾在这里把拳击动作 763 改选为投石动作 761。**v2.2.7 起已移除首石强改 `763 → 761`**，`L4D2_OnSelectTankAttackPre` 只做记录；自 PR #1 / v2.2.11 起新增 `L4D2_OnSelectTankAttack`（`tr_attacks.inc`）用于按配置掩码改写站立拳（40/43/45）与四类投石动作序列（放行砸地拳 46/47），另挂载 `L4D2_OnStagger_Post`、`L4D_OnDoAnimationEvent_PostHandled`、`L4D_OnCThrowActivate_PostHandled`、`L4D_TankClaw_GroundPound_Pre` 用于方案 1b 硬直判定、砸地拳统计与视角锁角状态闭环。
 
 #### `L4D_TankRock_OnRelease(...)`
 
@@ -159,12 +157,11 @@
 
 ## 五、明确**没有**使用的接口
 
-以下接口在项目研究里被审查过，但 v2.2.8 **不调用**。列出来是为了避免读者误以为它们可用：
+以下接口在项目研究里被审查过，但 v2.2.11 **不调用**。列出来是为了避免读者误以为它们可用：
 
 | 接口 | 原因 |
 |---|---|
 | `L4D_OnSpawnTank` 改写坐标 | 该版本 forward 不提供 CopyBack 向量 |
-| `L4D2_OnSelectTankAttack`（非 Pre） | 改的是模型序列，不是 AI 决策 |
 | `L4D_OnGetRandomPZSpawnPosition` | 该版本未注册/实现被注释 |
 | `L4D2_OnChooseVictim_Pre` | 可改 `lastTarget`，但与当前策略实现不一致，未采用 |
 | DHook `NextBotCreatePlayerBot_Tank` | 属于 `admin_extra_menu` 等其它插件的路径，本插件不争夺生成权 |

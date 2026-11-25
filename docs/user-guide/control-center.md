@@ -1,4 +1,4 @@
-# Tank Run 控制中心 v2.2.8 · 用户指南
+# Tank Run 控制中心 v2.2.11 · 用户指南
 
 面向服主与管理员的完整使用说明。读完这一篇就能装、能配、能验。细节分散在相邻文档里，本文给出入口。
 
@@ -30,7 +30,7 @@
 | 必需扩展 | Left4DHooks、SDKHooks、SDKTools |
 | 可选 | DHooks（原生禁拳）、官方 Tank Run 脚本（脚本字段）、L4DToolZ（槽位扩展） |
 | Tick 基线 | **100 tick**；128 tick 未验证 |
-| 游戏构建 | `server.dll` SHA256 `a93ec916...`（见 [版本表](../reference/versions.md)） |
+| 游戏构建 | `server.dll` 基线 `a93ec916…`；更新版 `6c543884…` 签名同样 1/1 唯一命中（见 [版本表](../reference/versions.md)） |
 
 细节与缺失后果：[依赖要求](../getting-started/requirements.md)。
 
@@ -44,7 +44,7 @@ addons/sourcemod/gamedata/tankrun_firstrock.txt
 ```
 
 解压到 `left4dead2` 目录，重启或 `sm plugins load tankdirector_menu`。
-`sm plugins list` 应显示 `Tank Run Control Center 2.2.8`。
+`sm plugins list` 应显示 `Tank Run Control Center 2.2.11`。
 
 三种方式（手动 / 插件平台 / 从源码编译）与校验哈希：[安装指南](../getting-started/install.md)。
 升级与回滚：[升级与回滚](../getting-started/upgrade-and-rollback.md)。
@@ -58,7 +58,8 @@ addons/sourcemod/gamedata/tankrun_firstrock.txt
 - **统一调度**：默认每 2 个游戏秒尝试一只，原版 Tank 与内嵌补位 Tank 合计上限 30。
 - **五种生成方式**：原生随机区域 / 距离带 / 准星位置 / 脚本 ZSpawn / 幸存者附近原生选位。
 - **前置条件**：必须有一名存活真人**确实离开起始安全区**，且原版阶段开放（`TanksDisabled` 为假、`cm_TankLimit > 0`）。
-- **满员轮换**：达到上限时处死最早出生的 AI Tank，确认槽位释放后补一只。
+- **满员轮换与次帧槽位回收**：达到上限时处死最早出生的 AI Tank，确认槽位释放后补一只；`tankrun_fast_slot_reclaim`（默认 `1`，仅 Tank Run 生效）在死亡 AI Tank 次帧释放槽位，避免原版 6 秒占槽堆积。
+- **自伤与处死豁免**：低 `tankrun_tank_damage_scale` 不再把原生 `tank_stuck_failsafe` 自杀 Tank 变成半血失能活体。
 - **双 Tank**：可选一次调度生成两只。
 
 详见 [生成方式与选位](spawn-modes.md)。
@@ -73,40 +74,45 @@ addons/sourcemod/gamedata/tankrun_firstrock.txt
 - **候选来源**：原生随机点、随机半径与角度的地面投影、地图导航点。
 - **合格条件**：所有存活生还者的最小距离、领先真人的最远距离、前线进度、NAV 可达性、安全区限制、出生空间检查、（遮挡档）全队视线检查。
 
-### 4.3 首石（首次接敌优先投石）
+### 4.3 首石（严格首石优先投石 · 方案 1b）
 
-v2.2.7 起的行为：**引擎负责起手、预判与出手方向，插件负责近战保护与真实离手确认。**
+v2.2.11 的行为：**出生即严锁拳击，引擎负责投石起手与弹道，插件负责近战保护、近距极速触发原版右键扔饼与真实离手确认。**
 
-- 首次扫描到可见幸存者时开启窗口。
-- 窗口内禁止普通起拳，共四层保险：
+- **出生即严锁**：AI Tank 出生即激活首石保护，消除接敌扫描节流间隙漏出「落地拳」的可能。
+- **四层禁拳保护**：
   1. `OnPlayerRunCmd` 剥掉 `IN_ATTACK` 位
   2. 原生 `CTankClaw::PrimaryAttack` Pre-detour（需 DHooks + 签名匹配）
   3. 出拳动画层拦截
-  4. 已进入命中判定时阻止对幸存者的击退
-- 攀跳/离地期间暂停超时，稳定落地后恢复完整尝试时间。
-- 成功判据只有一条：`L4D_TankRock_OnRelease_Post` 里确认到真实的 `tank_rock` 实体。
-- 超时或尝试次数用尽 → 解除禁拳，回退近战。
+  4. 已进入命中判定时阻止对幸存者的击退与拳击伤害
+- **障碍物独立开关**：`tankrun_firstrock_allow_props`（默认 `0` 全部严锁）；设为 `1` 时仅在远离存活幸存者 `> 130u` 时允许拍打汽车/破门，近身及对人命中仍 100% 拦截。
+- **近距极速扔饼**：`tankrun_firstrock_quick_throw`（默认 `1`）与 `tankrun_firstrock_quick_range`（默认 `280`）。当 Tank 脚踩实地面、直线可见存活幸存者、能力无冷却且处于近距内（或近距试图出拳被锁）时，通过 1-tick 交替脉冲注入 `IN_ATTACK2` 快速拉起原版 `CThrow`；远距拍障被拦不误触发，交回原生 AI 高抛预瞄。
+- **方案 1b 硬直区分解锁**：
+  - 未抬手投石前遭硬直（如炸药桶/榴弹/撞击）：**不消耗首石**，硬直后继续要求扔饼；
+  - 已触发 `CThrow` 起手后、石头离手前遭硬直打断（或 3.25 秒无离手且原生冷却卡入长冷却 `> 5s`）：解锁近战防止变木桩。
+- **默认禁用时间超时**：`tankrun_firstrock_timeout` 默认 `0.0`（不靠计时超时放拳；如需超时回退可在菜单调回正数秒）。
+- 成功判据仍为 `L4D_TankRock_OnRelease_Post` 确认到真实 `tank_rock` 实体。
 
-相关参数：`tankrun_firstrock_enabled` / `_timeout` / `_attempts`。
+相关参数：`tankrun_firstrock_enabled` / `_allow_props` / `_quick_throw` / `_quick_range` / `_timeout` / `_attempts`。
 
-> **v2.2.7 之前**插件会在 `L4D2_OnSelectTankAttackPre` 里把拳击动作 763 改选为投石动作 761。v2.2.8 **不做**这个改选，也**没有** `tankrun_rock_expert_lock` 参数。读旧文档时注意。
+> **v2.2.7 之前**插件会在 `L4D2_OnSelectTankAttackPre` 里把拳击动作 763 改选为投石动作 761。当前版本**不做**这个改选，也**没有** `tankrun_rock_expert_lock` 参数。读旧文档时注意。
 
 ### 4.4 投石与拳击
 
 - **投石总开关**：`tankrun_rock_enabled 0` 会真实拦截 `CThrow` 激活，Tank 无法投石。
 - **最小间隔**：`tankrun_rock_min_delay`，按每只 Tank 的真实释放时间计算。
 - **力度倍率**：`tankrun_rock_force_scale` 在 `OnRelease` 缩放真实释放速度。
-- 在 `Tank 投石控制 → 投石类型与视角锁定` 勾选原版抛法并分别设置视角。`不改变视角` 对所有已选抛法统一锁定抬手前视角。
-- 在 `Tank 普通拳击控制` 的两个阶段分别勾选上勾、右勾、左勾，并设置允许拳击的最远距离。投石抬手至离手或中断后的保持期使用投石期间设置。 [菜单与参数参考](menu-reference.md)
+- 在 `Tank 投石控制 → 投石类型与视角锁定` 勾选原版抛法并分别设置视角。`不改变视角` 对所有已选抛法统一锁定抬手前视角；`tankrun_rock_keep_loft`（默认 `1`）仅锁水平 Yaw 保留引擎 Pitch 抬角防砸脚；`tankrun_rock_after_delay`（默认 `0.35s`）避免抬手后模式首帧锁住半途残角。
+- 在 `Tank 普通拳击控制` 的两个阶段分别勾选上勾、右勾、左勾，并设置允许拳击的最远距离（原版砸地动作序列 `46/47` 受保护不改写为站立拳，且仍遵守禁拳与距离上限）。投石抬手至离手或中断后的保持期使用投石期间设置。[菜单与参数参考](menu-reference.md)
 - **拳击伤害倍率**：`tankrun_claw_damage_scale`。
 - **拳击命中阻挡**：`tankrun_claw_block_hit`，**风险项**，只影响击退。
-- **原生拳击/投石 ConVar**：一组 `tank_*`、`z_tank_*` 参数可读写并读回；其中一部分标注「效果未验证」。
+- **原生拳击/投石 ConVar**：一组 `tank_*`、`z_tank_*` 参数可读写并读回；部分原生消费点已在静态分析中实证。
 
 ### 4.5 目标策略
 
-- `tankrun_target_mode`：`0` 原生 / `1` 最近 / `2` 最远 / `3` 最低血 / `4` 固定玩家。
-- 实现方式是覆盖 `L4D2_OnChooseVictim` 的返回值。
-- **只影响经过这个回调的路径**。机枪、接触换人、命令等路径不受影响；Body 朝向与追击路径也不会同步改变。
+- `tankrun_target_mode`：`0` 原生 / `1` 最近 / `2` 最远 / `3` 最低血（含临时血） / `4` 固定玩家。
+- `tankrun_target_skip_incap`（默认 `1`）：优先跳过倒地、挂边及 4 类特感控制中的幸存者，避免与原生首石资格冲突；全员倒地或单人倒地时自动回退。
+- `tankrun_target_hysteresis`（默认 `200`）：最近/最远策略需优于当前目标该距离才切换，减少频繁切目标。
+- 实现方式是覆盖 `L4D2_OnChooseVictim` 的返回值，**只影响经过这个回调的路径**。机枪、接触换人、命令等路径不受影响；Body 朝向与追击路径也不会同步改变。
 
 ---
 
@@ -149,7 +155,7 @@ Tank Run 综合控制中心
 | `sm_tank_status` | 一般管理员 | 完整状态 |
 | `sm_tank_diag` | 一般管理员 | 重探依赖 + 状态 + 写日志 |
 | `sm_tank_dump` | 一般管理员 | 导出诊断文件 |
-| `sm_tank_params` | 一般管理员 | 列出 57 项参数与当前值 |
+| `sm_tank_params` | 一般管理员 | 列出 81 项参数与当前值 |
 | `sm_tank_spawn [native\|band\|aim\|script\|near]` | 配置管理员 | 手动生成 |
 | `sm_tank_clear` | 配置管理员 | 清理全部 AI Tank |
 | `sm_tank_kill <编号\|oldest\|newest>` | 配置管理员 | 处死指定 Tank |
@@ -176,22 +182,30 @@ Tank Run 综合控制中心
 | `tankrun_auto_interval` | `2.0` | 生成尝试间隔（秒） |
 | `tankrun_auto_limit` | `30` | 在场 Tank 总上限 |
 | `tankrun_rotate_oldest` | `1` | 满员轮换最早出生 |
+| `tankrun_fast_slot_reclaim` | `1` | 死亡 AI Tank 次帧回收槽位（0 原版 / 1 仅 Tank Run / 2 全模式） |
 | `tankrun_auto_double` | `0` | 一次生成两只 |
 | `tankrun_spawn_visibility` | `0` | 刷点难度（0 跟随 / 1 遮挡 / 2 前线） |
 | `tankrun_spawn_min_dist` | `220` | 最小距离 |
 | `tankrun_spawn_max_dist` | `3000` | 最大距离 |
-| `tankrun_firstrock_enabled` | `1` | 首石 |
-| `tankrun_firstrock_timeout` | `3.0` | 首石窗口超时 |
-| `tankrun_firstrock_attempts` | `2` | 首石尝试上限 |
+| `tankrun_firstrock_enabled` | `1` | 严格首石（出生即锁拳，方案 1b） |
+| `tankrun_firstrock_allow_props` | `0` | 首石前拍车/破障（0 全锁 / 1 远离幸存者允许） |
+| `tankrun_firstrock_quick_throw` | `1` | 近距禁拳时极速原版扔饼 |
+| `tankrun_firstrock_quick_range` | `280` | 极速扔饼触发距离 |
+| `tankrun_firstrock_timeout` | `0.0` | 首石窗口超时（0 禁用时间超时） |
+| `tankrun_firstrock_attempts` | `2` | 首石尝试上限（仅超时 > 0 启用） |
 | `tankrun_rock_enabled` | `1` | 允许投石 |
 | `tankrun_rock_min_delay` | `0.0` | 投石最小间隔 |
 | `tankrun_rock_force_scale` | `1.0` | 投石力度倍率 |
+| `tankrun_rock_keep_loft` | `1` | 锁视角时保留引擎 Pitch 抬角 |
+| `tankrun_rock_after_delay` | `0.35` | 抬手后锁角采样延迟（秒） |
 | `tankrun_claw_damage_scale` | `1.0` | 拳击伤害倍率 |
 | `tankrun_tank_health` | `0` | 生成时血量（0 不干预） |
 | `tankrun_target_mode` | `0` | 目标策略 |
+| `tankrun_target_skip_incap` | `1` | 目标策略跳过倒地与被控 |
+| `tankrun_target_hysteresis` | `200` | 最近/最远策略切换距离滞回 |
 | `tankrun_default_expert` | `1` | 进图默认专家 |
 
-完整 57 项：[参数参考](../reference/api/convars.md)。
+完整 81 项：[参数参考](../reference/api/convars.md)。
 
 ---
 
@@ -247,9 +261,9 @@ Tick 采样怎么读：[诊断](diagnostics.md)。
 
 ## 11. 已知问题与诚实边界
 
-1. **所有行为级改动都只做过编译与静态检查，游戏内效果由玩家验证。** 这不是免责声明，是版本表的每一行都写着「待实测」。
-2. **遮挡刷点在真实地图上的分布未验证。** v2.2.8 只通过了编译与遮挡算例。
-3. **首石成功率未知。** 超时是正常结局。
+1. **尚未达到全场景验证。** 核心首石方案 1b 与极速扔饼基线（`v2.2.10`）已在 Steam 本地单人 `c1m2_streets` 完成 145 只 AI Tank 实测，但 `v2.2.11` 远距拍障过滤以及多人专用服、其余地图、复杂策略组合仍**待实测**。
+2. **遮挡刷点在真实地图上的分布未验证。**
+3. **首石受引擎原生规则约束。** Easy/Normal 难度开局 10 秒存在原生禁投门；已抬手起手但离手前遭硬直打断时会按方案 1b 解锁近战防木桩。
 4. **满员轮换在槽位耗尽时的失败路径未实测。**
 5. **超过 4 只原生 Tank 的稳定性样本有限。** 历史样本：4 只时中位约 100 tick，出现过长间隔与工坊 VPK I/O 时间重合，但未证明因果。
 6. **128 tick 完全没有数据。**
@@ -259,7 +273,7 @@ Tick 采样怎么读：[诊断](diagnostics.md)。
 
 ## 12. 变更历史
 
-v2.2.8 的关键变化：普通难度用遮挡刷点、高难度用前线刷点，并新增 `tankrun_spawn_visibility` 覆盖。
+v2.2.11 的关键变化：整合 PR #1 分阶段拳种/距离与四类投石动作/视角控制；升级首石方案 1b（出生即严锁、默认禁时间超时、硬直区分解锁、拍车/障碍物独立开关、近距极速原版扔饼与远距拍障过滤）；新增砸地拳保护、锁视角保留 Pitch 抬角、抬手后延迟采样、死亡槽位次帧回收、自伤豁免、目标跳倒地/滞回与 4 项 `tank_stuck_failsafe` 原生参数。
 完整演进与每版验证状态：[版本表](../reference/versions.md)。
 
 原始逐版本技术记录（含具体日志行号与诊断样本）仍保留在 `docs/tankrun-control-center.md`，它是变更记录而不是使用手册。

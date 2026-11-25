@@ -167,10 +167,15 @@ void TR_WriteDiagnosticDump(char[] path, int maxlen)
         directorTankCount = L4D2_GetTankCount();
     }
     int nativeTanks = TR_CountTanks(false);
+    int dyingAiSlots = TR_CountDyingAiTankSlots();
     int replicas = TC_GetLiveReplicas();
     int nativeLimit = TR_NativeTankLimit(nativeTanks);
     bool mixed = TC_ManagedMode();
-    file.WriteLine("director_tank_count=%d live_tanks=%d", directorTankCount, nativeTanks);
+    file.WriteLine("director_tank_count=%d live_tanks=%d dying_ai_tank_slots=%d director_vs_live_delta=%d mounted_gun_survivor=%d",
+        directorTankCount, nativeTanks, dyingAiSlots,
+        directorTankCount >= 0 ? directorTankCount - nativeTanks : 0,
+        TR_FindMountedGunSurvivor());
+    file.WriteLine("# note: director_tank_count includes dying Tanks during native 6s leave window (Body+0x1c==0)");
     file.WriteLine("front_live_total=%d front_replicas=%d front_limit=%d human_left_start=%d phase_open=%d",
         nativeTanks + replicas, replicas, mixed ? g_cvAutoLimit.IntValue : nativeLimit, g_bHumanLeftStart, g_bFrontPhaseOpen);
     file.WriteLine("configured_tank_limit=%d native_tank_limit=%d reserved_handoff_slots=%d replica_enabled=%d",
@@ -221,11 +226,13 @@ void TR_WriteDiagnosticDump(char[] path, int maxlen)
         {
             continue;
         }
-        file.WriteLine("  state first_contact=%d first_age=%.1f window=%d deadline=%.1f attempts=%d strategy_off=%d",
+        file.WriteLine("  state first_contact=%d first_age=%.1f first_done=%d window=%d deadline=%.1f abs_deadline=%.1f attempts=%d strategy_off=%d staggering=%d stamina=%.1f",
             g_bTankFirstContact[i] ? 1 : 0,
             g_fTankFirstContactTime[i] > 0.0 ? GetGameTime() - g_fTankFirstContactTime[i] : -1.0,
-            g_bTankRockWindow[i] ? 1 : 0, g_fTankRockDeadline[i], g_iTankRockAttempts[i],
-            g_bTankStrategyOff[i] ? 1 : 0);
+            g_bTankFirstRockDone[i] ? 1 : 0,
+            g_bTankRockWindow[i] ? 1 : 0, g_fTankRockDeadline[i], g_fTankRockAbsoluteDeadline[i],
+            g_iTankRockAttempts[i], g_bTankStrategyOff[i] ? 1 : 0,
+            TR_IsTankStaggering(i) ? 1 : 0, TR_GetTankStamina(i));
         file.WriteLine("  counts rock=%d blocked=%d swing=%d hit=%d overrides=%d last_activity=%d chosen_target=%d",
             g_iTankReleaseCount[i], g_iTankBlockedCount[i], g_iTankSwingCount[i],
             g_iTankHitCount[i], g_iTankOverrides[i], g_iTankLastActivity[i],
@@ -237,9 +244,9 @@ void TR_WriteDiagnosticDump(char[] path, int maxlen)
 
     file.WriteLine("auto_spawn_interval=%.2f ticks=%d roundtrip=%.4f", g_cvAutoInterval.FloatValue, TR_SecondsToTicks(g_cvAutoInterval.FloatValue), TR_TicksToSeconds(TR_SecondsToTicks(g_cvAutoInterval.FloatValue)));
     file.WriteLine("# 统计");
-    file.WriteLine("spawns=%d spawn_fail=%d releases=%d blocked_gate=%d blocked_delay=%d activation_no_release=%d swings=%d hits=%d overrides=%d firstrock_ok=%d firstrock_timeout=%d params_written=%d conflicts=%d",
+    file.WriteLine("spawns=%d spawn_fail=%d releases=%d blocked_gate=%d blocked_delay=%d activation_no_release=%d stagger_cancel=%d quick_firstrock=%d swings=%d hits=%d overrides=%d firstrock_ok=%d firstrock_timeout=%d params_written=%d conflicts=%d",
         g_iStatSpawns, g_iStatSpawnFail, g_iStatReleases, g_iStatThrowGateBlocked,
-        g_iStatDelayedBlocked, g_iStatActivationNoRelease, g_iStatSwings, g_iStatHits, g_iStatOverrides,
+        g_iStatDelayedBlocked, g_iStatActivationNoRelease, g_iStatThrowStaggerCancel, g_iStatQuickFirstRock, g_iStatSwings, g_iStatHits, g_iStatOverrides,
         g_iStatFirstRockSuccess, g_iStatFirstRockTimeout, g_iStatParamsWritten, g_iStatConflicts);
 
     delete file;

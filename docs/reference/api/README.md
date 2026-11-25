@@ -1,6 +1,6 @@
 # 接口参考
 
-本目录记录控制中心 v2.2.8 **实际存在**的接口，以及与它交互的外部接口。每一条都能在源码或 gamedata 里找到对应位置。
+本目录记录控制中心 v2.2.11 **实际存在**的接口，以及与它交互的外部接口。每一条都能在源码或 gamedata 里找到对应位置。
 
 ## 这份参考的边界
 
@@ -24,8 +24,8 @@
 | 文档 | 内容 |
 |---|---|
 | [commands.md](commands.md) | 17 个命令：权限、参数、返回值、失败提示 |
-| [convars.md](convars.md) | 35 个自有 ConVar + 内部桥接 + 57 项参数的完整表 |
-| [left4dhooks.md](left4dhooks.md) | 14 个 Left4DHooks forward、1 个 SourceMod forward、调用的 native、8 个事件、自定义 detour |
+| [convars.md](convars.md) | 55 个自有 ConVar + 内部桥接 + 81 项参数的完整表 |
+| [left4dhooks.md](left4dhooks.md) | 19 个 Left4DHooks forward、1 个 SourceMod forward、调用的 native、8 个事件、自定义 detour |
 | [vscript-bridge.md](vscript-bridge.md) | 桥协议、六个会话字段、接管/交还 |
 | [files.md](files.md) | 服务器文件布局、配置格式、日志格式 |
 | [gamedata.md](gamedata.md) | 唯一原生签名及其平台与更新风险 |
@@ -50,6 +50,6 @@
 
 ## 一个重要提醒
 
-`analysis/tankrun-interface-inventory-20261115/interfaces.md` 是 2026-11-15 的接口清单，其中「当前项目实际接入」一节描述的是**当时**的 `tankdirector_menu`（v1.0.0 形态：4 个原生 ConVar + 3 个脚本字段）。v2.2.8 的接口规模远大于它。
+`analysis/tankrun-interface-inventory-20261115/interfaces.md` 是 2026-11-15 的接口清单，其中「当前项目实际接入」一节描述的是**当时**的 `tankdirector_menu`（v1.0.0 形态：4 个原生 ConVar + 3 个脚本字段）。v2.2.11 的接口规模远大于它。
 
 两份文档不冲突，但**不要拿它当当前接口表**。当前接口以本目录为准。

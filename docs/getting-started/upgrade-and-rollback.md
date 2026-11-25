@@ -53,6 +53,7 @@ sm plugins load tankdirector_menu
 
 | 版本 | 文件 | SHA256（前 16 位） |
 |---|---|---|
+| 2.2.11 | `dist/TankRun-Control-Center-v2.2.11.zip`（内置 `tankdirector_menu.smx`） | `ACEC74E98B753553` |
 | 2.2.8 | `build/releases/2.2.8/tankdirector_menu.smx` | `07B63555DCEAF4A1` |
 | 2.2.7 | `build/releases/2.2.7/tankdirector_menu.smx` | `63954CA566B1423C` |
 | 2.2.6 | `build/releases/2.2.6/tankdirector_menu.smx` | `F4CFCE3FED337764` |
@@ -115,6 +116,7 @@ sm_tank_set tankrun_script_tank_limit 8
 
 | 从 | 到 | 注意 |
 |---|---|---|
+| 2.2.11 | 2.2.8 | 2.2.11 引入分阶段拳种/距离与投石视角控制（`tr_attacks.inc`）、方案 1b 首石（默认 `tankrun_firstrock_timeout=0`、近距极速扔饼、障碍物拍打开关）、次帧槽位回收及目标跳过倒地/滞回；旧版配置不含这些 ConVar |
 | 2.2.x | 2.1.x | 2.2 引入统一生成调度与内嵌补位；回到 2.1 后「补位 Tank」概念消失，槽位满即停 |
 | 2.2.7 / 2.2.8 | 2.2.5 / 2.2.6 | 2.2.7 移除了插件侧的专家预判改写，交还引擎；`tankrun_rock_expert_lock` 参数已不存在 |
 | 2.1.8+ | 2.1.7 及更早 | 2.1.8 起默认每张图设专家难度，`tankrun_default_expert` 在旧版不存在 |

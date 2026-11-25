@@ -406,8 +406,10 @@ public void Event_PlayerDeath(Event event, const char[] name, bool dontBroadcast
     TR_LogEvent("Tank 死亡：#%d 投石 %d 次 拳击 %d 次 命中 %d 次", client,
         g_iTankReleaseCount[client], g_iTankSwingCount[client], g_iTankHitCount[client]);
     TR_ResetTank(client, "player_death");
-    if (IsFakeClient(client) && TR_ManagedCapacityActive() && !TC_ManagedMode())
+    if (IsFakeClient(client) && (TR_FastSlotReclaimActive() || (TR_ManagedCapacityActive() && !TC_ManagedMode())))
+    {
         RequestFrame(TR_ReleaseDeadTankSlot, userid);
+    }
 }
 
 public void Event_RoundStart(Event event, const char[] name, bool dontBroadcast)
@@ -429,7 +431,14 @@ public void Event_RoundEnd(Event event, const char[] name, bool dontBroadcast)
     {
         TR_ResetRockTelemetry(i);
         g_bTankRockWindow[i] = false;
+        g_bTankFirstRockDone[i] = false;
+        g_bTankQuickPulseOff[i] = false;
+        g_fTankNextQuickThrowLog[i] = 0.0;
+        g_fTankNextQuickLoS[i] = 0.0;
+        g_iTankCachedQuickTarget[i] = 0;
         g_fTankRockDeadline[i] = 0.0;
+        g_fTankRockHardDeadline[i] = 0.0;
+        g_fTankRockAbsoluteDeadline[i] = 0.0;
         g_fTankPendingActivation[i] = 0.0;
         g_iTankRockAttempts[i] = 0;
     }

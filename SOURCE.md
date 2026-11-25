@@ -1,6 +1,6 @@
-# Tank Run Control Center v2.2.8 对应源码
+# Tank Run Control Center v2.2.11 对应源码
 
-下载或收到 `TankRun-Control-Center-v2.2.8-full.zip` 后，将整个包解压到工作目录。插件的完整项目源码就在包内的 `scripting/`，可直接阅读、修改和重新构建。源码与已编译插件一起交付，无需账号或另行申请。
+下载或收到 `TankRun-Control-Center-v2.2.11-full.zip` 后，将整个包解压到工作目录。插件的完整项目源码就在包内的 `scripting/`，可直接阅读、修改和重新构建。源码与已编译插件一起交付，无需账号或另行申请。
 
 | 位置 | 内容 |
 |---|---|

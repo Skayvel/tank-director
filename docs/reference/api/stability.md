@@ -26,13 +26,13 @@
 | 类别 | 总数 | A 稳定 | B 实验性 | C 内部 |
 |---|---:|---:|---:|---:|
 | Commands | 17 | 16 | 1 | 0 |
-| ConVar（含脚本参数与内部桥接） | 64 | 30 | 33 | 1 |
+| ConVar（含脚本参数与内部桥接） | 88 | 36 | 51 | 1 |
 | **导出的 Native**（仅独立 `tankrun_capacity.smx`） | 4 | 0 | 4 | 0 |
-| **实现的外部回调**（Left4DHooks 14 + SourceMod 1） | 15 | 3 | 5 | 7 |
+| **实现的外部回调**（Left4DHooks 19 + SourceMod 1） | 20 | 3 | 6 | 11 |
 | **调用的外部 Native** | 4 | 4 | 0 | 0 |
 
-> ConVar 总计 64 = 6 个全局开关 + 29 个插件参数 + 24 个引擎参数 + 4 个脚本参数 + 1 个内部桥接。
-> 其中 `CreateConVar` 实际注册 36 个（35 个 `tankrun_*` + `tankrun_bridge`），其余为 `FindConVar` 绑定的引擎参数与 VScript 字段。
+> ConVar 总计 88 = 6 个全局开关 + 49 个插件参数 + 28 个引擎参数 + 4 个脚本参数 + 1 个内部桥接。
+> 其中 `CreateConVar` 实际注册 56 个（55 个 `tankrun_*` + `tankrun_bridge`），其余为 `FindConVar` 绑定的引擎参数与 VScript 字段。
 
 ---
 
@@ -73,30 +73,32 @@
 
 这 6 个不在参数表里，`sm_tank_params` 不显示；用 `sm_cvar` 或服务器配置设置。
 
-### 4.2 插件参数（29）
+### 4.2 插件参数（49）
 
-**A 稳定（24）** —— 语义由插件实现决定，读写即可确认生效：
+**A 稳定（30）** —— 语义由插件实现决定，读写即可确认生效：
 
 | 分组 | 参数 |
 |---|---|
-| 生成数量 | `tankrun_auto_spawn`、`tankrun_auto_interval`、`tankrun_auto_limit`、`tankrun_rotate_oldest`、`tankrun_auto_double`、`tankrun_spawn_mode` |
+| 生成数量 | `tankrun_auto_spawn`、`tankrun_auto_interval`、`tankrun_auto_limit`、`tankrun_rotate_oldest`、`tankrun_fast_slot_reclaim`、`tankrun_auto_double`、`tankrun_spawn_mode` |
 | 生成位置 | `tankrun_spawn_visibility`、`tankrun_spawn_min_dist`、`tankrun_spawn_max_dist`、`tankrun_spawn_attempts`、`tankrun_spawn_fallback` |
 | 目标/感知 | `tankrun_ai_only`、`tankrun_target_scan` |
-| 投石开关 | `tankrun_rock_enabled`、`tankrun_rock_min_delay` |
-| 首石计时 | `tankrun_firstrock_timeout`、`tankrun_firstrock_attempts` |
+| 投石开关与视角基础 | `tankrun_rock_enabled`、`tankrun_rock_min_delay`、`tankrun_rock_keep_loft`、`tankrun_rock_after_delay` |
+| 首石控制 | `tankrun_firstrock_timeout`、`tankrun_firstrock_attempts`、`tankrun_firstrock_allow_props`、`tankrun_firstrock_quick_throw`、`tankrun_firstrock_quick_range` |
 | 生命/伤害 | `tankrun_tank_health`、`tankrun_tank_maxhealth`、`tankrun_mode_health_sync`、`tankrun_tank_damage_scale`、`tankrun_fire_damage_scale`、`tankrun_speed_scale`、`tankrun_claw_damage_scale` |
 
-**B 实验性（5）**：
+**B 实验性（19）**：
 
 | 参数 | 为什么是 B |
 |---|---|
-| `tankrun_target_mode` | 只覆盖经过 `L4D2_OnChooseVictim` 的路径；机枪、接触、命令等路径不受影响 |
-| `tankrun_target_fixed` | 同上；且仅在 `target_mode = 4` 时有意义 |
-| `tankrun_firstrock_enabled` | 插件能维持窗口与禁拳，但**不能保证引擎接受投石请求**；超时是正常结局 |
-| `tankrun_rock_force_scale` | 改写真实释放速度向量；游戏内弹道效果未实服验证 |
+| `tankrun_target_mode`、`tankrun_target_fixed`、`tankrun_target_skip_incap`、`tankrun_target_hysteresis` | 只覆盖经过 `L4D2_OnChooseVictim` 的路径；机枪、接触、命令等路径不受影响 |
+| `tankrun_firstrock_enabled` | 插件能出生即锁拳、注入近距右键并确认离手，但受原生开局禁投门与硬直规则约束 |
+| `tankrun_rock_force_scale` | 改写真实释放速度向量；游戏内多场景弹道效果需持续实测 |
+| `tankrun_rock_cancel_clear_stamina` | 实验项：硬直打断投石时尝试清零 `m_flStamina` 体力减速 |
+| `tankrun_rock_types`、`tankrun_rock_no_turn`、`tankrun_rock_recovery`、`tankrun_rock_view_*`（4 项） | 投石动作掩码与视角锁定，依赖攻击动作/帧时序与后续实服验证 |
+| `tankrun_claw_types_idle`、`tankrun_claw_types_rock`、`tankrun_claw_range_idle`、`tankrun_claw_range_rock` | 分阶段拳种与三维距离上限控制，需结合原版拳击动画与碰撞持续验证 |
 | `tankrun_claw_block_hit` | **风险项**：让 `OnPlayerHit_Pre` 返回 `Handled`，只保证阻止击退，不保证不影响其它效果 |
 
-### 4.3 引擎参数（24）— 全部 B
+### 4.3 引擎参数（28）— 全部 B
 
 这些是游戏自己的 ConVar，插件只做 `FindConVar` 读写。**接口是稳定的，语义不是我们的**：
 
@@ -104,7 +106,7 @@
 |---|---|
 | 拳击 | `tank_swing_range`、`tank_attack_range`、`tank_fist_radius`、`tank_swing_interval`、`tank_swing_fast_interval`、`tank_swing_miss_interval`、`tank_windup_time`、`tank_swing_duration`、`z_tank_attack_interval` |
 | 投石 | `z_tank_throw_interval`、`tank_throw_min_interval`、`z_tank_throw_fail_interval`、`tank_throw_allow_range`、`z_tank_throw_force`、`tank_throw_lead_time_factor`、`tank_throw_loft_rate`、`tank_throw_max_loft_angle`、`tank_throw_aim_error`、`tank_rock_overhead_percent` |
-| 生成/导航 | `z_spawn_range`、`z_spawn_safety_range`、`z_finale_spawn_tank_safety_range`、`nb_allow_avoiding`、`nb_allow_climbing` |
+| 生成/导航/防卡死 | `z_spawn_range`、`z_spawn_safety_range`、`z_finale_spawn_tank_safety_range`、`nb_allow_avoiding`、`nb_allow_climbing`、`tank_stuck_failsafe`、`tank_stuck_time_choose_new_target`、`tank_stuck_time_suicide`、`tank_visibility_tolerance_suicide` |
 
 为什么全标 B：
 
@@ -144,7 +146,7 @@
 **为什么是 B 而不是 A**：函数体稳定，但有三处缺口——
 
 1. **没有公共 `.inc`。** 消费者必须自己写 `native` 声明（`tankrun_tick_telemetry.sp:6` 就是这么做的）。
-2. **只在独立插件里注册。** 控制中心内嵌了同一份 `tankrun_capacity.sp`，但那段注册代码被 `#if !defined TR_EMBEDDED_CAPACITY` 排除。装了 v2.2.8 控制中心的服务器上，这些 native **不存在**。
+2. **只在独立插件里注册。** 控制中心内嵌了同一份 `tankrun_capacity.sp`，但那段注册代码被 `#if !defined TR_EMBEDDED_CAPACITY` 排除。装了控制中心的服务器上，这些 native **不存在**。
 3. **没有库标识。** 全仓库没有 `RegPluginLibrary`，所以其他插件不能用 `LibraryExists()` 探测，只能用 `GetFeatureStatus(FeatureType_Native, "...")`。
 
 ### 5.2 消费示例（仓库内唯一实例）
@@ -181,7 +183,7 @@ if (GetFeatureStatus(FeatureType_Native, "TankRun_GetLiveReplicas") == FeatureSt
 
 ---
 
-## 6. 实现的外部回调（15）
+## 6. 实现的外部回调（20）
 
 这些不是我们导出的 API，而是我们**实现**别人定义的 forward。分成三类看。
 
@@ -193,21 +195,22 @@ if (GetFeatureStatus(FeatureType_Native, "TankRun_GetLiveReplicas") == FeatureSt
 | `L4D_OnSpawnTank` | 统一调度闸门：放行或否决原版创建 |
 | `L4D_TankRock_OnRelease_Post` | 首石成功判据：能确认到真实 `tank_rock` 实体 |
 
-### B 实验性（5）
+### B 实验性（6）
 
 | Forward | 为什么是 B |
 |---|---|
 | `L4D2_OnChooseVictim` | 只覆盖普通选择函数路径 |
-| `L4D_TankRock_OnRelease` | 改写释放速度向量；效果未实服验证 |
-| `L4D_TankClaw_OnPlayerHit_Pre` | 阻止击退；是否连带影响伤害未经原生证据确认 |
-| `L4D_OnDoAnimationEvent` | 首石窗口内拦截出拳动画事件；实际拦截效果未实服验证 |
-| `OnPlayerRunCmd`（SourceMod） | 从 AI 命令里剥离 `IN_ATTACK`；已开始的挥击不受影响 |
+| `L4D2_OnSelectTankAttack` | 按当前阶段掩码改写站立拳/投石动画序列（放行砸地拳序列 `46/47`） |
+| `L4D_TankRock_OnRelease` | 改写释放速度向量与锁定朝向水平分量 |
+| `L4D_TankClaw_OnPlayerHit_Pre` | 阻止击退；是否连带影响伤害需按调用路径区分 |
+| `L4D_OnDoAnimationEvent` | 首石窗口内拦截出拳动画事件 |
+| `OnPlayerRunCmd`（SourceMod） | 首石剥离 `IN_ATTACK`、近距极速首石 1-tick 注入 `IN_ATTACK2`、投石视角锁角 |
 
-### C 内部（7）
+### C 内部（11）
 
 只用于记录、统计或状态推进，不构成对外契约：
 
-`L4D_OnDoAnimationEvent_Post`、`L4D_OnCThrowActivate_Post`、`L4D2_OnSelectTankAttackPre`、`L4D_TankRock_OnDetonate`、`L4D_TankClaw_DoSwing_Pre`、`L4D_TankClaw_DoSwing_Post`、`L4D_TankClaw_OnPlayerHit_Post`
+`L4D2_OnStagger_Post`、`L4D_OnDoAnimationEvent_Post`、`L4D_OnDoAnimationEvent_PostHandled`、`L4D_OnCThrowActivate_Post`、`L4D_OnCThrowActivate_PostHandled`、`L4D2_OnSelectTankAttackPre`、`L4D_TankRock_OnDetonate`、`L4D_TankClaw_DoSwing_Pre`、`L4D_TankClaw_DoSwing_Post`、`L4D_TankClaw_GroundPound_Pre`、`L4D_TankClaw_OnPlayerHit_Post`
 
 > 注意：`L4D2_OnSelectTankAttackPre` 在 v2.2.6 及更早版本会改写 `sequence`（763→761）。v2.2.7 起**只记录**。升级时不要依赖旧行为。
 
@@ -239,7 +242,7 @@ if (GetFeatureStatus(FeatureType_Native, "TankRun_GetLiveReplicas") == FeatureSt
 | `tankrun_bridge` 报文格式 | 见 4.5 |
 | 日志文本与字段顺序 | 用于人工阅读与 grep，不是稳定协议 |
 | `tankrun_control_dump.txt` 的分块与行号 | 行号随参数个数变化，不要写死 |
-| 参数表容量（`TR_PARAM_MAX = 57`） | 已满；新增参数会改变容量 |
+| 参数表容量（`TR_PARAM_MAX = 84`） | 当前已用 81 项；新增参数可能调整容量 |
 | 内部定时器周期（扫描 0.25 秒、校正 5 秒等） | 可随版本调整 |
 | 补位实体的内部状态与命名 | 属于实现细节 |
 | 文件格式细节（`键=值` 的顺序、注释行） | 读入兼容，写出的顺序不保证 |

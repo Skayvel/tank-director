@@ -14,7 +14,7 @@
 
 ## 方式一：手动安装（推荐，可控）
 
-1. 下载 [TankRun-Control-Center-v2.2.8.zip](../../dist/TankRun-Control-Center-v2.2.8.zip)。
+1. 下载 [TankRun-Control-Center-v2.2.11.zip](../../dist/TankRun-Control-Center-v2.2.11.zip)（含完整对应源码与许可的独立包见 [TankRun-Control-Center-v2.2.11-full.zip](../../dist/TankRun-Control-Center-v2.2.11-full.zip)）。
 2. 备份你服务器上已存在的同名文件：
 
    ```
@@ -25,7 +25,7 @@
 3. 把压缩包解压到游戏的 **`left4dead2`** 目录（不是 `addons` 目录，也不是服务器根目录）。解压后应得到：
 
    ```
-   left4dead2/addons/sourcemod/plugins/tankdirector_menu.smx      (122,874 字节)
+   left4dead2/addons/sourcemod/plugins/tankdirector_menu.smx      (143,079 字节)
    left4dead2/addons/sourcemod/gamedata/tankrun_firstrock.txt      (532 字节)
    ```
 
@@ -40,7 +40,7 @@
 5. 校验：`sm plugins list` 应显示
 
    ```
-   Tank Run Control Center 2.2.8
+   Tank Run Control Center 2.2.11
    ```
 
    版本号对不上说明装的是旧文件，或服务器读的是另一个目录。
@@ -50,7 +50,7 @@
 发布包的 SMX SHA256 为：
 
 ```
-07B63555DCEAF4A135A3BE6D62CFBF650FC0BC752662796A9C4547191319045B
+ACEC74E98B753553EBC3A0CD40CE78B16D9C08FA3381F536655783BD3DE62211
 ```
 
 Windows PowerShell 校验：
@@ -82,7 +82,7 @@ Get-FileHash -Algorithm SHA256 `
 适合要改代码或换编译器版本的情况。
 
 1. 需要 SourceMod 1.12 的 `spcomp.exe` 及**同一套** `include/` 目录。混用不同版本的 include 会产生难以定位的编译错误。
-2. 项目源码是 `scripting/tankdirector_menu.sp` 加 `scripting/tankrun/` 下的七个 `.inc`。**必须保持相对目录结构**，因为 `.sp` 用 `#include "tankrun/tr_core.inc"` 这样的路径引用。
+2. 项目源码是 `scripting/tankdirector_menu.sp` 加 `scripting/tankrun/` 下的八个 `.inc`（及内嵌的 `scripting/tankrun_capacity.sp`）。**必须保持相对目录结构**，因为 `.sp` 用 `#include "tankrun/tr_core.inc"` 这样的路径引用。
 3. 编译命令：
 
    ```powershell
@@ -95,18 +95,18 @@ Get-FileHash -Algorithm SHA256 `
 
 4. 编译成功只说明编译器接受源码，**不说明游戏内行为正确**。
 
-项目自带的写文件构建脚本是 `tools/build_tankrun_control.ps1`，会额外写构建日志与部署记录（含源码/编译器/产物三个哈希）。详见 [构建](../project/build.md)。
+仓库自带构建脚本为 `tools/build.ps1`（会开启 `-E` 严格编译并写入构建报告与产物哈希）。详见 [构建](../project/build.md)。
 
 ## 首次加载后必做的三件事
 
 1. 看日志文件 `addons/sourcemod/logs/tankrun_control.log` 首行应为：
 
    ```
-   插件已加载 v2.2.8：注册参数 xx 项，日志 ...
+   插件已加载 v2.2.11：注册参数 81 项，日志 ...
    ```
 
 2. 服务器控制台执行 `sm_tank_status`，确认：
-   - 版本 2.2.8
+   - 版本 2.2.11
    - 模式显示 `tankrun`
    - 依赖行：`Left4DHooks=可用 | SDKHooks=可用`
    - 脚本行不是「不可用」——若显示不可用，见 [故障排查](../operations/troubleshooting.md)

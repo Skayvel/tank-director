@@ -2,7 +2,7 @@
 
 这份清单和功能清单同等重要。**凡是这里列出的，插件都做不到**，不要从菜单或其它文档期望这些能力。
 
-来源：`docs/tankrun-control-center.md` 第 6 节的否定清单（v2.0.1 时点）＋ v2.2.8 源码核对。标注「v2.2.8 核对」的条目是本次整理时重新确认过的。
+来源：`docs/tankrun-control-center.md` 第 6 节的否定清单（v2.0.1 时点）＋ v2.2.11 源码核对。
 
 ## 一、公开接口层面做不到
 
@@ -40,7 +40,7 @@
 |---|---|---|
 | 客户端槽位上限 | 31 槽（32 有崩溃风险，上游标注） | `docs/tankrun-capacity.md`、L4DToolZ 2.5.1 |
 | 客户端槽位 33 崩溃 | 客户端循环在槽位 33 触发 `tier0!Error` | `evidence/tankrun-capacity/client-slot-guard.txt` |
-| 参数表容量 | 57 项，**已满** | `tr_core.inc:17` `TR_PARAM_MAX` |
+| 参数表容量 | 84 项（当前已注册 81 项） | `tr_core.inc:20` `TR_PARAM_MAX` |
 | 平台 | 仅 Windows 有原生 detour 签名 | `gamedata/tankrun_firstrock.txt` |
 | Tick 基线 | 100 tick；128 tick 未验证 | `indexes/status.json` |
 | 生成位置重试 | 单次选位最多尝试 20 次 | `tankrun_spawn_attempts` 上限 |
@@ -49,12 +49,12 @@
 
 读旧文档时最容易踩的坑，逐条列出：
 
-| 项目 | 出现位置 | 当前状态（v2.2.8） |
+| 项目 | 出现位置 | 当前状态（v2.2.11） |
 |---|---|---|
 | `tankrun_rock_expert_lock` 参数 | `docs/tankrun-control-center.md` 第 458 行（v2.2.5 节） | **已移除**。v2.2.7 起投石预判交还引擎，源码无此 ConVar |
 | 首石「763 → 761 动作改选」 | 同上第 231、317 行；`docs/coordination/command-board.md` | **已移除**。v2.2.7 起不再改写 `sequence`，`L4D2_OnSelectTankAttackPre` 只记录 |
-| `sm plugins list` 显示版本 `2.0.0` | 同上第 296 行 | 当前显示 `2.2.8` |
-| `tankdirector_menu` 只接 4 个原生 ConVar | `analysis/tankrun-interface-inventory-20261115/interfaces.md` 第 15 行 | 当前有 35 个自有 ConVar、17 个命令、57 项参数 |
+| `sm plugins list` 显示版本 `2.0.0` | 同上第 296 行 | 当前显示 `2.2.11` |
+| `tankdirector_menu` 只接 4 个原生 ConVar | `analysis/tankrun-interface-inventory-20261115/interfaces.md` 第 15 行 | 当前有 55 个自有 ConVar（另 1 个内部桥接）、17 个命令、81 项参数表条目 |
 | 编译器 1.12.0.7260 | 同上第 282 行 | v2.1.8 起用 1.12.0.7220 |
 | 投石瞄准「原版」以外的描述 | v2.2.5 节 | v2.2.7 起明确 `投石瞄准：原版` |
 

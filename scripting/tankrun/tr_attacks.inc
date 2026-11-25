@@ -3,6 +3,7 @@
 
 // Model sequences exposed by Left4DHooks for the stock L4D2 Tank.
 static const int TR_ClawSequences[] = {40, 43, 45};
+static const int TR_GroundPoundSequences[] = {46, 47};
 static const int TR_RockSequences[] = {48, 49, 50, 51};
 static const int TR_RockActivities[] = {761, 762, 762, 762};
 
@@ -13,6 +14,7 @@ enum struct TR_RockMotion
     bool animationSeen;
     int type;
     float windupUntil;
+    float afterLockAt;
     float recoveryUntil;
     float returnUntil;
     int viewMode;
@@ -118,6 +120,7 @@ void TR_BeginRockActivation(int tank)
     g_RockMotion[tank].viewMode = TR_VIEW_NATIVE;
     g_RockMotion[tank].locked = false;
     g_RockMotion[tank].viewWriteFailed = false;
+    g_RockMotion[tank].afterLockAt = 0.0;
     g_RockMotion[tank].returnUntil = 0.0;
     g_RockMotion[tank].recoveryUntil = 0.0;
     int age = GetGameTickCount() - g_RockMotion[tank].sampleTick;
@@ -142,6 +145,8 @@ void TR_ConfirmRockWindup(int tank, float now)
     g_RockMotion[tank].windupUntil = now + TR_ROCK_WINDUP_LIMIT;
     if (g_cvRockNoTurn.BoolValue) g_RockMotion[tank].viewMode = TR_VIEW_BEFORE;
     if (g_RockMotion[tank].viewMode == TR_VIEW_BEFORE) TR_LockRockView(tank, g_RockMotion[tank].before);
+    else if (g_RockMotion[tank].viewMode == TR_VIEW_AFTER)
+        g_RockMotion[tank].afterLockAt = now + g_cvRockAfterDelay.FloatValue;
 }
 
 Action TR_SelectRockActivity(int tank, int &activity)
@@ -171,6 +176,12 @@ public Action L4D2_OnSelectTankAttack(int client, int &sequence)
         sequence = TR_ClawSequences[selected];
         TR_LogEvent("拳种改选：Tank#%d 原版=%d 实际=%d", client, TR_ClawSequences[type], sequence);
         return Plugin_Handled;
+    }
+
+    if (TR_FindAttackType(TR_GroundPoundSequences, sizeof(TR_GroundPoundSequences), sequence) >= 0)
+    {
+        TR_LogEvent("砸地拳放行：Tank#%d 保留原版砸地序列=%d", client, sequence);
+        return Plugin_Continue;
     }
 
     type = TR_FindAttackType(TR_RockSequences, sizeof(TR_RockSequences), sequence);
@@ -222,6 +233,11 @@ void TR_UpdateRockMotion(int tank, float now, const float angles[3])
         TR_EndRockWindup(tank, now, "超时未离手");
         return;
     }
+    if (TR_IsTankStaggering(tank))
+    {
+        TR_OnRockCancelled(tank, "起手阶段硬直中断");
+        return;
+    }
     int sequence = GetEntProp(tank, Prop_Send, "m_nSequence");
     int type = TR_FindAttackType(TR_RockSequences, sizeof(TR_RockSequences), sequence);
     if (type < 0)
@@ -237,15 +253,24 @@ void TR_UpdateRockMotion(int tank, float now, const float angles[3])
             g_RockMotion[tank].type = type;
             g_RockMotion[tank].viewMode = g_cvRockNoTurn.BoolValue ? TR_VIEW_BEFORE : g_cvRockView[type].IntValue;
             if (g_RockMotion[tank].viewMode == TR_VIEW_BEFORE) TR_LockRockView(tank, g_RockMotion[tank].before);
+            else if (g_RockMotion[tank].viewMode == TR_VIEW_AFTER)
+                g_RockMotion[tank].afterLockAt = now + g_cvRockAfterDelay.FloatValue;
         }
     }
     g_RockMotion[tank].animationSeen = true;
-    if (g_RockMotion[tank].viewMode == TR_VIEW_AFTER) TR_LockRockView(tank, angles);
+    if (g_RockMotion[tank].viewMode == TR_VIEW_AFTER && !g_RockMotion[tank].locked)
+    {
+        if (g_RockMotion[tank].afterLockAt <= 0.0)
+            g_RockMotion[tank].afterLockAt = now + g_cvRockAfterDelay.FloatValue;
+        if (now >= g_RockMotion[tank].afterLockAt)
+            TR_LockRockView(tank, angles);
+    }
 }
 
 bool TR_GetControlledRockView(int tank, float now, const float current[3], float desired[3])
 {
     if (!g_RockMotion[tank].locked) return false;
+    bool keepLoft = g_cvRockKeepLoft != null && g_cvRockKeepLoft.BoolValue;
     if (!TR_InRockPhase(tank, now))
     {
         int tick = GetGameTickCount();
@@ -253,7 +278,8 @@ bool TR_GetControlledRockView(int tank, float now, const float current[3], float
         {
             float step = 180.0 * GetTickInterval();
             bool caughtUp = true;
-            for (int axis = 0; axis < 2; axis++)
+            int startAxis = keepLoft ? 1 : 0;
+            for (int axis = startAxis; axis < 2; axis++)
             {
                 float delta = TR_ViewDelta(current[axis], g_RockMotion[tank].view[axis]);
                 if (FloatAbs(delta) > step) caughtUp = false;
@@ -262,7 +288,7 @@ bool TR_GetControlledRockView(int tank, float now, const float current[3], float
                 g_RockMotion[tank].view[axis] = TR_ViewDelta(g_RockMotion[tank].view[axis] + delta, 0.0);
             }
             g_RockMotion[tank].turnTick = tick;
-            if (caughtUp && now >= g_RockMotion[tank].returnUntil)
+            if (caughtUp || now >= g_RockMotion[tank].returnUntil)
             {
                 g_RockMotion[tank].locked = false;
                 return false;
@@ -270,6 +296,7 @@ bool TR_GetControlledRockView(int tank, float now, const float current[3], float
         }
     }
     desired = g_RockMotion[tank].view;
+    if (keepLoft) desired[0] = current[0];
     return true;
 }
 

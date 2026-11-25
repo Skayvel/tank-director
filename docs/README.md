@@ -31,7 +31,7 @@
 
 | 文档 | 说明 |
 |---|---|
-| [control-center.md](user-guide/control-center.md) | **v2.2.8 完整用户指南** |
+| [control-center.md](user-guide/control-center.md) | **v2.2.11 完整用户指南** |
 | [menu-reference.md](user-guide/menu-reference.md) | 11 个菜单分节逐项说明 |
 | [spawn-modes.md](user-guide/spawn-modes.md) | 五种生成方式、距离段、遮挡规则、轮换 |
 | [capacity-and-seats.md](user-guide/capacity-and-seats.md) | 客户端槽位、30 Tank、8 人席位、补位实体 |
@@ -45,7 +45,7 @@
 |---|---|
 | [api/README.md](reference/api/README.md) | 接口参考的总说明与边界 |
 | [api/commands.md](reference/api/commands.md) | 17 个命令，含权限与参数 |
-| [api/convars.md](reference/api/convars.md) | 35 个 `tankrun_*` 参数与内部桥接 |
+| [api/convars.md](reference/api/convars.md) | 55 个 `tankrun_*` 参数、内部桥接与 81 项参数表 |
 | [api/left4dhooks.md](reference/api/left4dhooks.md) | 实际使用的 Left4DHooks / SourceMod 回调及其限制 |
 | [api/vscript-bridge.md](reference/api/vscript-bridge.md) | 与 Tank Run 模式脚本交换的字段 |
 | [api/files.md](reference/api/files.md) | 服务器文件布局、配置文件、日志格式 |

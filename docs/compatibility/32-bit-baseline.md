@@ -26,7 +26,7 @@
 | `left4dead2/pak01_dir.vpk` | 3,798,698 | `51cc2957bbc5fd545357fd6b8da0fd5c387243756cd6f82e067d5e256e48fcdd` |
 | `update/pak01_dir.vpk` | 859,687 | `47f31ef57a94f88463da8b2132a55cfed14bae127f35e4cfb68948e840ed8b52` |
 
-PatchVersion 声明 `2.2.4.3`。完整清单见 `indexes/artifacts.json`。
+PatchVersion 声明 `2.2.4.3`。完整清单见 `indexes/artifacts.json`。2026-11-25 检测到 Steam `server.dll` 更新至 `6c543884961f87b8a86cebfc980eabc8501b63387397f1ee583d9e32cecc9950`（9,130,800 字节），经字节扫描核实 `gamedata/tankrun_firstrock.txt` 签名在新旧两构建中均唯一命中 1 处（1/1）。
 
 ## 3. 32 位假设出现在哪些地方
 
@@ -49,7 +49,7 @@ PatchVersion 声明 `2.2.4.3`。完整清单见 `indexes/artifacts.json`。
 |---|---|---|
 | 客户端槽位 | 31（32 有崩溃风险） | L4DToolZ 上游 + 项目实测 |
 | 槽位 33 崩溃 | `UpdatePlayerName with bogus slot` | 同构建 `client.dll` 指令 |
-| 参数表容量 | 57 项 | `TR_PARAM_MAX` |
+| 参数表容量 | 84 项（当前已注册 81 项） | `TR_PARAM_MAX` |
 | 服务器单进程可用内存 | 32 位地址空间 | 平台限制 |
 
 ## 5. 32 位下的验证状态

@@ -19,8 +19,8 @@
 sm plugins list
 ```
 
-**通过**：出现 `Tank Run Control Center 2.2.8`。
-**不通过**：版本号不是 2.2.8 → 装错文件；插件根本不出现 → 看 [故障排查](../operations/troubleshooting.md)。
+**通过**：出现 `Tank Run Control Center 2.2.11`。
+**不通过**：版本号不是 2.2.11 → 装错文件；插件根本不出现 → 看 [故障排查](../operations/troubleshooting.md)。
 
 ## 2. 依赖状态
 
@@ -31,7 +31,7 @@ sm_tank_status
 **通过**，输出里应包含（实际措辞以你服务器为准，关键字段位置固定）：
 
 ```
-Tank Run 综合控制中心 v2.2.8 | 功能开关：开启
+Tank Run 综合控制中心 v2.2.11 | 功能开关：开启
 模式：tankrun | 地图：... | 难度：... | tick 间隔 0.0100 秒（100 tick）
 依赖：Left4DHooks=可用 | SDKHooks=可用 | Tank Run 脚本=已连接 Tank Run 模式脚本
 Tank：AI 0 只 / 玩家 0 只 | 自动生成：开（间隔 2 秒，上限 30）
@@ -52,7 +52,7 @@ Tank：AI 0 只 / 玩家 0 只 | 自动生成：开（间隔 2 秒，上限 30�
 - `武器入口禁拳：已加载` 表示 DHooks 签名匹配上了。显示「未加载」时首石仍有输入拦截路径，但第一道防线不存在。
 - `阶段：暂停` 在玩家离开安全区前是正常的。
 
-**通过标准**：插件自己在日志里也写了加载行。检查 `logs/tankrun_control.log` 第一行是 `插件已加载 v2.2.8`。
+**通过标准**：插件自己在日志里也写了加载行。检查 `logs/tankrun_control.log` 第一行是 `插件已加载 v2.2.11`。
 
 ## 3. 菜单
 
@@ -143,7 +143,7 @@ sm_tank_restore all
 
 ## 通过之后
 
-- 想知道每个菜单项和参数具体做什么：[v2.2.8 用户指南](../user-guide/control-center.md)
+- 想知道每个菜单项和参数具体做什么：[v2.2.11 用户指南](../user-guide/control-center.md)
 - 想系统验证某一项行为：[验收剧本](../user-guide/validation-playbook.md)
 - 遇到异常：[故障排查](../operations/troubleshooting.md)
 

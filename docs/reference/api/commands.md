@@ -1,6 +1,6 @@
 # 命令参考
 
-控制中心 v2.2.8 注册的全部 17 个命令。**每一条都对应源码 `scripting/tankrun/tr_diag.inc:420-442`。**
+控制中心 v2.2.11 注册的全部 17 个命令。**每一条都对应源码 `scripting/tankrun/tr_diag.inc:420-442`。**
 
 ## 权限模型
 
@@ -32,7 +32,7 @@
 | `sm_tank_status` | 无 | `ADMFLAG_GENERIC` | 聊天栏多行状态：版本、模式、地图、难度、tick 间隔、依赖、Tank 计数、统一生成、刷点难度、槽位、首石、累计统计、参数写入计数 |
 | `sm_tank_diag` | 无 | `ADMFLAG_GENERIC` | 重新探测依赖 + 状态摘要 + 写日志 |
 | `sm_tank_dump` | 无 | `ADMFLAG_GENERIC` | 导出 `logs/tankrun_control_dump.txt` |
-| `sm_tank_params` | 无 | `ADMFLAG_GENERIC` | 逐行列出全部 57 项参数：`名称 = 值（标签，分区 N）`；不可读的显示 `unavailable` |
+| `sm_tank_params` | 无 | `ADMFLAG_GENERIC` | 逐行列出全部 81 项参数：`名称 = 值（标签，分区 N）`；不可读的显示 `unavailable` |
 | `sm_tank_help` | 无 | 所有人 | 命令帮助（6 行） |
 
 `sm_tank_params` 输出示例：
@@ -52,7 +52,7 @@ tankrun_script_tank_limit = 8.0000（脚本数量门（只），分区 6）
 sm_tank_set <参数名> <数值>
 ```
 
-权限 `ADMFLAG_CONFIG`。参数名必须是 `sm_tank_params` 里出现过的 57 项之一。
+权限 `ADMFLAG_CONFIG`。参数名必须是 `sm_tank_params` 里出现过的 81 项之一。
 
 行为：
 1. 未知参数 → `未知参数：X（使用 sm_tank_params 查看已注册参数）`

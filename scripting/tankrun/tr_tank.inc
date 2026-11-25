@@ -21,11 +21,17 @@ float g_fTankBaseSpeed[MAXPLAYERS + 1];
 bool  g_bTankFirstContact[MAXPLAYERS + 1];
 float g_fTankFirstContactTime[MAXPLAYERS + 1];
 bool  g_bTankRockWindow[MAXPLAYERS + 1];
+bool  g_bTankFirstRockDone[MAXPLAYERS + 1];
+bool  g_bTankQuickPulseOff[MAXPLAYERS + 1];
+float g_fTankNextQuickThrowLog[MAXPLAYERS + 1];
+float g_fTankNextQuickLoS[MAXPLAYERS + 1];
+int   g_iTankCachedQuickTarget[MAXPLAYERS + 1];
 bool  g_bTankTraversalPunchLogged[MAXPLAYERS + 1];
 bool  g_bTankTraversalDamageLogged[MAXPLAYERS + 1];
 float g_fTankTraversalPunchUntil[MAXPLAYERS + 1];
 float g_fTankRockDeadline[MAXPLAYERS + 1];
 float g_fTankRockHardDeadline[MAXPLAYERS + 1];
+float g_fTankRockAbsoluteDeadline[MAXPLAYERS + 1];
 float g_fTankRockPausedAt[MAXPLAYERS + 1];
 float g_fTankRockTraverseUntil[MAXPLAYERS + 1];
 int   g_iTankRockAttempts[MAXPLAYERS + 1];
@@ -131,6 +137,10 @@ public bool TR_FilterNothing(int entity, int contentsMask, any data)
 
 public bool TR_FilterLoS(int entity, int contentsMask, any data)
 {
+    if (entity >= 1 && entity <= MaxClients)
+    {
+        return false;
+    }
     if (entity == g_iTraceIgnoreA || entity == g_iTraceIgnoreB || (data > MaxClients && entity == data))
     {
         return false;
@@ -142,7 +152,7 @@ bool TR_HasLineOfSight(int tank, int target, const float start[3], const float e
 {
     g_iTraceIgnoreA = tank;
     g_iTraceIgnoreB = target;
-    TR_TraceRayFilter(start, end, MASK_SHOT, RayType_EndPoint, TR_FilterLoS, ignoreEntity);
+    TR_TraceRayFilter(start, end, MASK_VISIBLE, RayType_EndPoint, TR_FilterLoS, ignoreEntity);
     g_iTraceIgnoreA = 0;
     g_iTraceIgnoreB = 0;
     if (!TR_DidHit())
@@ -174,7 +184,7 @@ float TR_NearestSurvivorDistance(const float pos[3], int &who)
     return who == 0 ? -1.0 : best;
 }
 
-int TR_FindVisibleSurvivor(int tank, float maxRange = 2500.0)
+int TR_FindVisibleSurvivor(int tank, float maxRange = 1500.0)
 {
     if (!TR_IsTankClient(tank))
     {
@@ -285,11 +295,17 @@ void TR_ResetTank(int client, const char[] reason)
     g_bTankFirstContact[client] = false;
     g_fTankFirstContactTime[client] = 0.0;
     g_bTankRockWindow[client] = false;
+    g_bTankFirstRockDone[client] = false;
+    g_bTankQuickPulseOff[client] = false;
+    g_fTankNextQuickThrowLog[client] = 0.0;
+    g_fTankNextQuickLoS[client] = 0.0;
+    g_iTankCachedQuickTarget[client] = 0;
     g_bTankTraversalPunchLogged[client] = false;
     g_bTankTraversalDamageLogged[client] = false;
     g_fTankTraversalPunchUntil[client] = 0.0;
     g_fTankRockDeadline[client] = 0.0;
     g_fTankRockHardDeadline[client] = 0.0;
+    g_fTankRockAbsoluteDeadline[client] = 0.0;
     g_fTankRockPausedAt[client] = 0.0;
     g_fTankRockTraverseUntil[client] = 0.0;
     g_iTankRockAttempts[client] = 0;
@@ -752,6 +768,59 @@ void TR_HealAllTanks()
     }
 }
 
+bool TR_FastSlotReclaimActive()
+{
+    if (g_cvFastSlotReclaim == null || !TR_FeatureEnabled() || g_bRoundEnded) return false;
+    int mode = g_cvFastSlotReclaim.IntValue;
+    return mode >= 2 || (mode == 1 && TR_IsTankRunMode());
+}
+
+int TR_CountDyingAiTankSlots()
+{
+    int count = 0;
+    for (int i = 1; i <= MaxClients; i++)
+    {
+        if (IsClientInGame(i) && IsFakeClient(i) && !IsPlayerAlive(i)
+            && GetClientTeam(i) == 3 && GetEntProp(i, Prop_Send, "m_zombieClass") == 8
+            && !IsClientInKickQueue(i))
+        {
+            count++;
+        }
+    }
+    return count;
+}
+
+int TR_ReclaimDyingAiTankSlots()
+{
+    if (!TR_FastSlotReclaimActive())
+    {
+        return 0;
+    }
+    int reclaimed = 0;
+    for (int i = 1; i <= MaxClients; i++)
+    {
+        if (IsClientInGame(i) && IsFakeClient(i) && !IsPlayerAlive(i)
+            && GetClientTeam(i) == 3 && GetEntProp(i, Prop_Send, "m_zombieClass") == 8
+            && !IsClientInKickQueue(i))
+        {
+            KickClient(i, "Tank Run: releasing a dying AI Tank slot");
+            reclaimed++;
+        }
+    }
+    return reclaimed;
+}
+
+public void TR_KickRetiredTankFrame(any userid)
+{
+    int client = GetClientOfUserId(userid);
+    if (client > 0 && IsClientInGame(client) && IsFakeClient(client) && !IsPlayerAlive(client)
+        && GetClientTeam(client) == 3 && GetEntProp(client, Prop_Send, "m_zombieClass") == 8
+        && !IsClientInKickQueue(client))
+    {
+        KickClient(client, "Tank Run: releasing a retired AI Tank slot");
+    }
+}
+
 bool TR_KillTank(int client, const char[] source, bool releaseSlot = false)
 {
     if (!TR_IsTankClient(client))
@@ -769,15 +838,19 @@ bool TR_KillTank(int client, const char[] source, bool releaseSlot = false)
     if (retired && releaseSlot && GetClientOfUserId(userid) == client && IsClientInGame(client)
         && IsFakeClient(client) && !IsClientInKickQueue(client))
     {
-        KickClient(client, "Tank Run: releasing a retired AI Tank slot");
+        RequestFrame(TR_KickRetiredTankFrame, userid);
     }
     return retired;
 }
 
 public void TR_ReleaseDeadTankSlot(any userid)
 {
-    if (!TR_ManagedCapacityActive() || !g_bSessionReady || TC_ManagedMode() || g_bRoundEnded
-        || GetClientCount(false) < MaxClients - TR_ReservedTankSlots()) return;
+    if (!TR_FeatureEnabled() || g_bRoundEnded) return;
+    if (!TR_FastSlotReclaimActive())
+    {
+        if (!TR_ManagedCapacityActive() || !g_bSessionReady || TC_ManagedMode()
+            || GetClientCount(false) < MaxClients - TR_ReservedTankSlots()) return;
+    }
     int client = GetClientOfUserId(userid);
     if (client > 0 && IsClientInGame(client) && IsFakeClient(client) && !IsPlayerAlive(client)
         && GetClientTeam(client) == 3 && GetEntProp(client, Prop_Send, "m_zombieClass") == 8
@@ -812,26 +885,31 @@ public Action TR_OnTakeDamage(int victim, int &attacker, int &inflictor, float &
 
     if (victim >= 1 && victim <= MaxClients && TR_IsAiTank(victim))
     {
-        float scale = g_cvTankDmgScale.FloatValue;
-        if (FloatAbs(scale - 1.0) > 0.001)
+        // 豁免自伤（如原生 tank_stuck_failsafe 触发的自杀）与插件直接处死，防止低倍率导致卡死自杀失败。
+        bool isSelfOrSlay = (attacker == victim) || (attacker == 0 && inflictor == 0 && damage >= 99999.0);
+        if (!isSelfOrSlay)
         {
-            damage *= scale;
-            changed = true;
-        }
-        if ((damagetype & DMG_BURN) != 0)
-        {
-            float fireScale = g_cvFireScale.FloatValue;
-            if (FloatAbs(fireScale - 1.0) > 0.001)
+            float scale = g_cvTankDmgScale.FloatValue;
+            if (FloatAbs(scale - 1.0) > 0.001)
             {
-                damage *= fireScale;
+                damage *= scale;
                 changed = true;
+            }
+            if ((damagetype & DMG_BURN) != 0)
+            {
+                float fireScale = g_cvFireScale.FloatValue;
+                if (FloatAbs(fireScale - 1.0) > 0.001)
+                {
+                    damage *= fireScale;
+                    changed = true;
+                }
             }
         }
     }
 
     if (attacker >= 1 && attacker <= MaxClients && TR_IsAiTank(attacker))
     {
-        if (TR_IsSurvivor(victim) && TR_FirstRockClawGuard(attacker, GetGameTime())
+        if (TR_IsSurvivor(victim) && TR_FirstRockClawGuard(attacker, GetGameTime(), true)
             && (TR_IsClawDamageEntity(weapon) || TR_IsClawDamageEntity(inflictor)))
         {
             if (!g_bTankTraversalDamageLogged[attacker])
@@ -939,7 +1017,8 @@ int TR_ReservedTankSlots()
 int TR_NativeTankLimit(int nativeTanks)
 {
     // Occupied slots include connecting clients and dead bots until their disconnect is processed.
-    int physical = nativeTanks + MaxClients - GetClientCount(false) - TR_ReservedTankSlots();
+    int dyingReclaimable = TR_FastSlotReclaimActive() ? TR_CountDyingAiTankSlots() : 0;
+    int physical = nativeTanks + MaxClients - GetClientCount(false) + dyingReclaimable - TR_ReservedTankSlots();
     if (physical <= 0) return 0;
     int configured = g_cvAutoLimit.IntValue;
     return physical < configured ? physical : configured;
@@ -1036,11 +1115,13 @@ void TR_ProcessTankReplacement()
     if (GetGameTickCount() == g_iReplacementTick) return;
     float now = GetGameTime();
     if (now < g_fReplacementRetry) return;
+    TR_ReclaimDyingAiTankSlots();
     float elapsed = now - g_fReplacementStarted;
-    if (elapsed >= 2.0)
+    float timeout = TR_FastSlotReclaimActive() ? 2.0 : 6.5;
+    if (elapsed >= timeout)
     {
         g_bFrontReplacement = false;
-        TR_Log("前线补位超时：旧 userid=%d，槽位 %d/%d", g_iReplacementUserId, GetClientCount(false), MaxClients);
+        TR_Log("前线补位超时：旧 userid=%d，槽位 %d/%d（限时 %.1f 秒）", g_iReplacementUserId, GetClientCount(false), MaxClients, timeout);
         return;
     }
     if (GetClientCount(false) >= MaxClients - TR_ReservedTankSlots() && g_iReplacementUserId != 0

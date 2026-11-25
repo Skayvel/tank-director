@@ -15,9 +15,9 @@
 #include <sdkhooks>
 #include <left4dhooks>
 
-#define TR_VERSION      "2.2.9-dev"
+#define TR_VERSION      "2.2.11"
 #define TR_TAG          "[TankRun]"
-#define TR_PARAM_MAX    68
+#define TR_PARAM_MAX    84
 
 #define TR_CLAW_ALL        7
 #define TR_ROCK_ALL        15
@@ -107,6 +107,7 @@ ConVar g_cvAutoSpawn;
 ConVar g_cvAutoInterval;
 ConVar g_cvAutoLimit;
 ConVar g_cvRotateOldest;
+ConVar g_cvFastSlotReclaim;
 ConVar g_cvAutoDouble;
 ConVar g_cvSpawnMode;
 ConVar g_cvSpawnVisibility;
@@ -118,6 +119,8 @@ ConVar g_cvSpawnFallback;
 ConVar g_cvTargetMode;
 ConVar g_cvTargetFixed;
 ConVar g_cvTargetScan;
+ConVar g_cvTargetSkipIncap;
+ConVar g_cvTargetHysteresis;
 
 ConVar g_cvRockEnabled;
 ConVar g_cvRockMinDelay;
@@ -126,10 +129,16 @@ ConVar g_cvRockTypes;
 ConVar g_cvRockView[sizeof(TR_RockViewParams)];
 ConVar g_cvRockNoTurn;
 ConVar g_cvRockRecovery;
+ConVar g_cvRockKeepLoft;
+ConVar g_cvRockAfterDelay;
+ConVar g_cvRockCancelClearStamina;
 
 ConVar g_cvFirstRock;
 ConVar g_cvFirstRockTimeout;
 ConVar g_cvFirstRockAttempts;
+ConVar g_cvFirstRockAllowProps;
+ConVar g_cvFirstRockQuickThrow;
+ConVar g_cvFirstRockQuickRange;
 
 ConVar g_cvClawScale;
 ConVar g_cvClawBlock;
@@ -1432,6 +1441,7 @@ void TR_CreateConVars()
     g_cvAutoInterval    = CreateConVar("tankrun_auto_interval", "2.0", "插件自动生成间隔（秒）", FCVAR_NOTIFY);
     g_cvAutoLimit       = CreateConVar("tankrun_auto_limit", "30", "Tank Run 脚本与插件共用的在场 Tank 上限", FCVAR_NOTIFY, true, 1.0, true, 31.0);
     g_cvRotateOldest    = CreateConVar("tankrun_rotate_oldest", "1", "自动生成满员时处死最早出生的 AI Tank 再补位", FCVAR_NOTIFY, true, 0.0, true, 1.0);
+    g_cvFastSlotReclaim = CreateConVar("tankrun_fast_slot_reclaim", "1", "死亡 AI Tank 快速回收槽位：0=原版6秒 1=仅Tank Run次帧回收 2=全模式次帧回收", FCVAR_NOTIFY, true, 0.0, true, 2.0);
     g_cvAutoDouble      = CreateConVar("tankrun_auto_double", "0", "插件自动生成时每次尝试双 Tank", FCVAR_NOTIFY);
     g_cvSpawnMode       = CreateConVar("tankrun_spawn_mode", "0", "生成方式：0=原生随机区域 1=距离带 2=准星位置 3=Tank Run 脚本 4=幸存者附近原生选位", FCVAR_NOTIFY);
     g_cvSpawnVisibility = CreateConVar("tankrun_spawn_visibility", "0", "Tank Run 刷点规则：0=跟随游戏难度 1=普通遮挡 2=高难度前线", FCVAR_NOTIFY, true, 0.0, true, 2.0);
@@ -1443,6 +1453,8 @@ void TR_CreateConVars()
     g_cvTargetMode      = CreateConVar("tankrun_target_mode", "0", "目标策略：0=原生 1=最近 2=最远 3=最低血 4=固定玩家", FCVAR_NOTIFY);
     g_cvTargetFixed     = CreateConVar("tankrun_target_fixed", "0", "固定目标玩家序号（1..MaxClients）", FCVAR_NOTIFY);
     g_cvTargetScan      = CreateConVar("tankrun_target_scan", "0.4", "感知扫描间隔（秒）", FCVAR_NOTIFY);
+    g_cvTargetSkipIncap = CreateConVar("tankrun_target_skip_incap", "1", "目标策略优先跳过倒地/挂边/被特感控制幸存者（全员倒地时自动回退）", FCVAR_NOTIFY, true, 0.0, true, 1.0);
+    g_cvTargetHysteresis = CreateConVar("tankrun_target_hysteresis", "200.0", "最近/最远目标策略的距离滞回阈值（单位，0=关闭）", FCVAR_NOTIFY, true, 0.0, true, 2000.0);
 
     g_cvRockEnabled     = CreateConVar("tankrun_rock_enabled", "1", "允许原生投石（关闭=拦截投石激活）", FCVAR_NOTIFY);
     g_cvRockMinDelay    = CreateConVar("tankrun_rock_min_delay", "0.0", "插件侧投石最小间隔（秒，0=不限制）", FCVAR_NOTIFY);
@@ -1450,12 +1462,18 @@ void TR_CreateConVars()
     g_cvRockTypes       = CreateConVar("tankrun_rock_types", "15", "AI Tank 投石动作掩码：1=下勾 2=单手过肩 4=腰侧 8=双手过顶", FCVAR_NOTIFY, true, 0.0, true, float(TR_ROCK_ALL));
     g_cvRockNoTurn      = CreateConVar("tankrun_rock_no_turn", "0", "不改变视角：所有启用的投石动作统一锁定抬手前视角", FCVAR_NOTIFY, true, 0.0, true, 1.0);
     g_cvRockRecovery    = CreateConVar("tankrun_rock_recovery", "0.75", "离手或中断后保持投石阶段的秒数", FCVAR_NOTIFY, true, 0.0, true, 3.0);
+    g_cvRockKeepLoft    = CreateConVar("tankrun_rock_keep_loft", "1", "锁投石视角时保留引擎计算的抛射抬角 Pitch（仅锁水平 Yaw）", FCVAR_NOTIFY, true, 0.0, true, 1.0);
+    g_cvRockAfterDelay  = CreateConVar("tankrun_rock_after_delay", "0.35", "锁定抬手后视角模式等待转向完成的采样延迟（秒）", FCVAR_NOTIFY, true, 0.0, true, 1.5);
+    g_cvRockCancelClearStamina = CreateConVar("tankrun_rock_cancel_clear_stamina", "0", "投石前摇被硬直中断时尝试清零 Tank 体力减速惩罚（实验项）", FCVAR_NOTIFY, true, 0.0, true, 1.0);
     for (int i = 0; i < sizeof(TR_RockViewParams); i++)
         g_cvRockView[i] = CreateConVar(TR_RockViewParams[i], "0", "视角：0=原版 1=抬手前 2=抬手后", FCVAR_NOTIFY, true, 0.0, true, 2.0);
 
-    g_cvFirstRock       = CreateConVar("tankrun_firstrock_enabled", "1", "首次接敌优先原版投石", FCVAR_NOTIFY);
-    g_cvFirstRockTimeout = CreateConVar("tankrun_firstrock_timeout", "3.0", "首石窗口超时（秒）", FCVAR_NOTIFY);
-    g_cvFirstRockAttempts = CreateConVar("tankrun_firstrock_attempts", "2", "首石能力激活最大尝试次数", FCVAR_NOTIFY);
+    g_cvFirstRock       = CreateConVar("tankrun_firstrock_enabled", "1", "出生即严锁拳击直至确认首次原版投石（方案1b）", FCVAR_NOTIFY);
+    g_cvFirstRockTimeout = CreateConVar("tankrun_firstrock_timeout", "0.0", "首石窗口超时（秒，0=禁用超时，默认禁用）", FCVAR_NOTIFY, true, 0.0, true, 30.0);
+    g_cvFirstRockAttempts = CreateConVar("tankrun_firstrock_attempts", "2", "首石能力激活尝试上限（仅超时>0时启用）", FCVAR_NOTIFY);
+    g_cvFirstRockAllowProps = CreateConVar("tankrun_firstrock_allow_props", "0", "首石前允许拍打汽车/门等障碍物：0=全部严锁 1=远离幸存者时允许破障", FCVAR_NOTIFY, true, 0.0, true, 1.0);
+    g_cvFirstRockQuickThrow = CreateConVar("tankrun_firstrock_quick_throw", "1", "首石未完成且近距离无法出拳时，落地后立刻触发原版右键扔饼", FCVAR_NOTIFY, true, 0.0, true, 1.0);
+    g_cvFirstRockQuickRange = CreateConVar("tankrun_firstrock_quick_range", "280.0", "近距离极速扔饼触发距离（单位，0=仅贴脸试图出拳时触发）", FCVAR_NOTIFY, true, 0.0, true, 1000.0);
 
     g_cvClawScale       = CreateConVar("tankrun_claw_damage_scale", "1.0", "Tank 拳击伤害倍率", FCVAR_NOTIFY);
     g_cvClawBlock       = CreateConVar("tankrun_claw_block_hit", "0", "阻挡 Tank 拳击命中判定（仅影响击退，风险项）", FCVAR_NOTIFY);
@@ -1491,6 +1509,9 @@ void TR_RegisterParams()
     p = TR_AddParam(SEC_SPAWN, TRK_PLUGIN, "tankrun_rotate_oldest", "满员时轮换最早出生的 Tank",
         0.0, 1.0, 1.0, true, true, TRV_NONE, "自动生成到期且满员时处死最早出生的 AI Tank，给新 Tank 腾位置");
     TR_Quick(p, 0.0, 1.0);
+    p = TR_AddParam(SEC_SPAWN, TRK_PLUGIN, "tankrun_fast_slot_reclaim", "死亡 AI Tank 快速回收槽位",
+        0.0, 2.0, 1.0, true, true, TRV_NONE, "0=原版6秒 1=仅Tank Run次帧回收（单人/本地主机省槽减负） 2=全模式次帧回收");
+    TR_Quick(p, 0.0, 1.0, 2.0);
     p = TR_AddParam(SEC_SPAWN, TRK_PLUGIN, "tankrun_auto_double", "每次生成双 Tank",
         0.0, 1.0, 1.0, true, true, TRV_NONE, "插件策略：一次调度生成两只");
     TR_Quick(p, 0.0, 1.0);
@@ -1541,10 +1562,10 @@ void TR_RegisterParams()
         16.0, 500.0, 2.0, false, true, TRV_NONE, "原生注册参数");
     TR_Quick(p, 40.0, 56.0, 80.0, 120.0);
     p = TR_AddParam(SEC_CLAW, TRK_ENGINE, "tank_attack_range", "攻击范围参数（单位）",
-        0.0, 500.0, 2.0, false, false, TRV_NONE, "已审 AI 触发分支可能使用固定 50，可改但效果未验证");
+        0.0, 500.0, 2.0, false, false, TRV_NONE, "已审 AI 普通起拳门使用固定 50，未见业务读取此项，可改但效果未验证");
     TR_Quick(p, 50.0, 80.0, 120.0, 200.0);
     p = TR_AddParam(SEC_CLAW, TRK_ENGINE, "tank_fist_radius", "拳击半径（单位）",
-        0.0, 200.0, 1.0, false, false, TRV_NONE, "可修改，实际命中几何未验证");
+        0.0, 200.0, 1.0, false, true, TRV_NONE, "静态实证：CTankClaw::Sweep 盒体扫描半边长（默认 15）");
     TR_Quick(p, 10.0, 15.0, 25.0, 40.0);
     p = TR_AddParam(SEC_CLAW, TRK_ENGINE, "tank_swing_interval", "普通挥击间隔（秒）",
         0.1, 10.0, 0.1, false, true, TRV_NONE, "原生注册参数");
@@ -1556,13 +1577,13 @@ void TR_RegisterParams()
         0.1, 10.0, 0.1, false, true, TRV_NONE, "原生注册参数");
     TR_Quick(p, 0.5, 1.0, 2.0, 3.0);
     p = TR_AddParam(SEC_CLAW, TRK_ENGINE, "tank_windup_time", "前摇（秒）",
-        0.0, 5.0, 0.05, false, false, TRV_NONE, "可修改，需实测动画与生效帧，效果未验证");
+        0.0, 5.0, 0.05, false, true, TRV_NONE, "静态实证：StartSwing 起手到触发 DoSwing 命中扫描的延迟（默认 0.5）");
     TR_Quick(p, 0.2, 0.5, 0.8, 1.2);
     p = TR_AddParam(SEC_CLAW, TRK_ENGINE, "tank_swing_duration", "动作持续时间（秒）",
-        0.0, 5.0, 0.05, false, false, TRV_NONE, "可修改，需实测动画与生效帧，效果未验证");
+        0.0, 5.0, 0.05, false, true, TRV_NONE, "静态实证：DoSwing 命中扫描有效窗口时长（默认 0.2）");
     TR_Quick(p, 0.2, 0.4, 0.6, 1.0);
     p = TR_AddParam(SEC_CLAW, TRK_ENGINE, "z_tank_attack_interval", "攻击间隔（秒）",
-        0.1, 10.0, 0.1, false, false, TRV_NONE, "局部计时路径，与其他拳击计时关系未闭合");
+        0.1, 10.0, 0.1, false, true, TRV_NONE, "静态实证：CTankClaw::OnHitPlayer 击飞站立幸存者后重置的挥击冷却（默认 1.5）");
     TR_Quick(p, 0.5, 1.5, 2.5, 4.0);
 
     // ---------------- M05/M06 投石 ----------------
@@ -1570,6 +1591,15 @@ void TR_RegisterParams()
         0.0, float(TR_ROCK_ALL), 1.0, true, false, TRV_NONE, "1=下勾抛 2=单手过肩抛 4=腰侧抛 8=双手过顶抛，累加多选，0=禁投");
     TR_AddParam(SEC_ROCK, TRK_PLUGIN, "tankrun_rock_no_turn", "不改变视角",
         0.0, 1.0, 1.0, true, false, TRV_NONE, "覆盖各投石类型的视角设置，统一锁定抬手前视角");
+    p = TR_AddParam(SEC_ROCK, TRK_PLUGIN, "tankrun_rock_keep_loft", "锁视角时保留抛射抬角",
+        0.0, 1.0, 1.0, true, true, TRV_NONE, "开启后仅锁定水平朝向 Yaw，保留引擎计算的俯仰抬角 Pitch，防石头砸脚");
+    TR_Quick(p, 0.0, 1.0);
+    p = TR_AddParam(SEC_ROCK, TRK_PLUGIN, "tankrun_rock_after_delay", "抬手后视角采样延迟（秒）",
+        0.0, 1.5, 0.05, false, true, TRV_NONE, "抬手后锁角模式等待 AI 完成转向的延迟，避免在第 1 帧锁死半途残角");
+    TR_Quick(p, 0.0, 0.2, 0.35, 0.6);
+    p = TR_AddParam(SEC_ROCK, TRK_PLUGIN, "tankrun_rock_cancel_clear_stamina", "投石硬直取消时清零体力惩罚",
+        0.0, 1.0, 1.0, true, false, TRV_NONE, "实验项：投石前摇被硬直中断时尝试清零 m_flStamina，避免持续减速");
+    TR_Quick(p, 0.0, 1.0);
     p = TR_AddParam(SEC_ROCK, TRK_PLUGIN, "tankrun_rock_recovery", "投石后视角保持（秒）",
         0.0, 3.0, 0.05, false, false, TRV_NONE, "真实离手、动画中断或超时后延续视角锁定及投石阶段拳击设置");
     TR_Quick(p, 0.0, 0.5, 0.75, 1.0);
@@ -1613,7 +1643,7 @@ void TR_RegisterParams()
         0.0, 89.0, 1.0, false, true, TRV_NONE, "原生瞄准参数");
     TR_Quick(p, 15.0, 30.0, 45.0, 60.0);
     p = TR_AddParam(SEC_ROCK, TRK_ENGINE, "tank_throw_aim_error", "瞄准误差",
-        0.0, 500.0, 5.0, false, false, TRV_NONE, "只影响特定数值模式分支，效果未验证");
+        0.0, 500.0, 5.0, false, true, TRV_NONE, "静态实证：仅 Easy 难度由 ThrowRockAimHelper 施加垂直视线随机偏移半径（默认 100）");
     TR_Quick(p, 0.0, 50.0, 100.0, 200.0);
     p = TR_AddParam(SEC_ROCK, TRK_ENGINE, "tank_rock_overhead_percent", "过肩投掷百分比",
         0.0, 100.0, 5.0, false, false, TRV_NONE, "研究记录存在但本构建注册未确认；缺失时显示不可用");
@@ -1622,23 +1652,42 @@ void TR_RegisterParams()
     // ---------------- M04/M08 目标与策略 ----------------
     p = TR_AddParam(SEC_TARGET, TRK_PLUGIN, "tankrun_target_mode", "目标选择策略",
         0.0, float(_:TRT_COUNT) - 1.0, 1.0, true, false, TRV_NONE,
-        "插件策略，通过 L4D2_OnChooseVictim 覆盖；原生其他目标路径不受影响");
+        "插件策略，通过 L4D2_OnChooseVictim 覆盖；原生机枪手/胆汁抢占可能先于此门");
     TR_Quick(p, 0.0, 1.0, 3.0, 4.0);
     p = TR_AddParam(SEC_TARGET, TRK_PLUGIN, "tankrun_target_fixed", "固定目标玩家序号",
         0.0, float(MaxClients), 1.0, true, false, TRV_NONE, "1..MaxClients；仅策略=固定玩家时使用");
     TR_Quick(p, 0.0);
+    p = TR_AddParam(SEC_TARGET, TRK_PLUGIN, "tankrun_target_skip_incap", "目标策略跳过倒地与被控",
+        0.0, 1.0, 1.0, true, true, TRV_NONE, "优先选可站立幸存者，防止与原生首石资格冲突；全员倒地时自动回退");
+    TR_Quick(p, 0.0, 1.0);
+    p = TR_AddParam(SEC_TARGET, TRK_PLUGIN, "tankrun_target_hysteresis", "目标切换距离滞回（单位）",
+        0.0, 2000.0, 25.0, false, true, TRV_NONE, "最近/最远策略需优于当前目标该距离才切换（对齐原生 200u 滞回）");
+    TR_Quick(p, 0.0, 100.0, 200.0, 400.0);
     p = TR_AddParam(SEC_TARGET, TRK_PLUGIN, "tankrun_target_scan", "感知扫描间隔（秒）",
         0.1, 5.0, 0.1, false, true, TRV_NONE, "插件观察/首次接敌检测周期，默认 0.4 秒");
     TR_Quick(p, 0.2, 0.4, 1.0, 2.0);
-    p = TR_AddParam(SEC_TARGET, TRK_PLUGIN, "tankrun_firstrock_enabled", "首次接敌优先原版投石",
-        0.0, 1.0, 1.0, true, false, TRV_NONE,
-        "攀跳时保留移动，首次接敌后禁拳到真实石头离手或超时；引擎负责原版起手与瞄准");
+    p = TR_AddParam(SEC_TARGET, TRK_PLUGIN, "tankrun_firstrock_enabled", "严格首石优先原版投石",
+        0.0, 1.0, 1.0, true, true, TRV_NONE,
+        "出生即严锁拳击直至真实离手或起手遭硬直打断（方案1b）；近距无法出拳时极速扔饼");
     TR_Quick(p, 0.0, 1.0);
-    p = TR_AddParam(SEC_TARGET, TRK_PLUGIN, "tankrun_firstrock_timeout", "首石窗口超时（秒）",
-        1.0, 10.0, 0.5, false, true, TRV_NONE, "攀跳离地时暂停超时，稳定落地后保留完整尝试时间");
-    TR_Quick(p, 2.0, 3.0, 5.0, 8.0);
-    p = TR_AddParam(SEC_TARGET, TRK_PLUGIN, "tankrun_firstrock_attempts", "首石激活尝试上限",
-        1.0, 5.0, 1.0, true, true, TRV_NONE, "原版尝试用尽且没有石头待离手时，解除首石禁拳");
+    p = TR_AddParam(SEC_TARGET, TRK_PLUGIN, "tankrun_firstrock_allow_props", "首石前允许拍车/障碍物",
+        0.0, 1.0, 1.0, true, true, TRV_NONE,
+        "0=全部严锁（默认）；1=远离幸存者(>130u)时允许破障拍车，近身与对人命中仍严锁");
+    TR_Quick(p, 0.0, 1.0);
+    p = TR_AddParam(SEC_TARGET, TRK_PLUGIN, "tankrun_firstrock_quick_throw", "近距禁拳时极速扔饼",
+        0.0, 1.0, 1.0, true, true, TRV_NONE,
+        "首石未完成且脚已踩实地面、处于近距离或试图出拳被锁时，立即触发原版右键投石");
+    TR_Quick(p, 0.0, 1.0);
+    p = TR_AddParam(SEC_TARGET, TRK_PLUGIN, "tankrun_firstrock_quick_range", "极速扔饼触发距离（单位）",
+        0.0, 1000.0, 20.0, false, true, TRV_NONE,
+        "覆盖原生 tank_throw_allow_range=250 盲区；0=仅在贴脸试图出拳被锁时触发");
+    TR_Quick(p, 0.0, 260.0, 280.0, 400.0);
+    p = TR_AddParam(SEC_TARGET, TRK_PLUGIN, "tankrun_firstrock_timeout", "首石窗口超时（秒，0=禁用）",
+        0.0, 30.0, 1.0, false, true, TRV_NONE,
+        "0=禁用时间超时触发（方案1b默认）；正数=等待该秒数后强制恢复近战");
+    TR_Quick(p, 0.0, 3.0, 6.0, 10.0);
+    p = TR_AddParam(SEC_TARGET, TRK_PLUGIN, "tankrun_firstrock_attempts", "首石激活尝试上限（超时>0）",
+        1.0, 5.0, 1.0, true, true, TRV_NONE, "仅在首石超时>0 时启用：尝试用尽且无待离手石头时解禁");
     TR_Quick(p, 1.0, 2.0, 3.0);
     p = TR_AddParam(SEC_TARGET, TRK_PLUGIN, "tankrun_ai_only", "只控制 AI Tank",
         0.0, 1.0, 1.0, true, true, TRV_NONE, "开启时列表与策略只面向 AI Tank；关闭后玩家控制的 Tank 只观察不修改");
@@ -1677,6 +1726,18 @@ void TR_RegisterParams()
     p = TR_AddParam(SEC_RULES, TRK_ENGINE, "nb_allow_climbing", "允许导航攀爬",
         0.0, 1.0, 1.0, true, true, TRV_NONE, "原生导航参数");
     TR_Quick(p, 0.0, 1.0);
+    p = TR_AddParam(SEC_RULES, TRK_ENGINE, "tank_stuck_failsafe", "卡死自杀安全阀",
+        0.0, 1.0, 1.0, true, true, TRV_NONE, "静态实证：TankAttack 在不可见且卡死超时后自杀退场的总开关");
+    TR_Quick(p, 0.0, 1.0);
+    p = TR_AddParam(SEC_RULES, TRK_ENGINE, "tank_stuck_time_choose_new_target", "卡死换目标延迟（秒）",
+        0.0, 30.0, 0.5, false, true, TRV_NONE, "静态实证：Tank 卡死超过此时长时触发重选目标（默认 2.0）");
+    TR_Quick(p, 1.0, 2.0, 5.0, 10.0);
+    p = TR_AddParam(SEC_RULES, TRK_ENGINE, "tank_stuck_time_suicide", "卡死自杀阈值（秒）",
+        0.0, 60.0, 1.0, false, true, TRV_NONE, "静态实证：卡死满此时长且不可见时触发原生自杀（默认 10.0）");
+    TR_Quick(p, 5.0, 10.0, 20.0, 40.0);
+    p = TR_AddParam(SEC_RULES, TRK_ENGINE, "tank_visibility_tolerance_suicide", "不可见自杀容忍（秒）",
+        0.0, 120.0, 5.0, false, true, TRV_NONE, "静态实证：卡死自杀需同时满足不可见时长门限（默认 60.0）");
+    TR_Quick(p, 15.0, 30.0, 60.0, 90.0);
 
     p = TR_AddParam(SEC_RULES, TRK_VSCRIPT, "tankrun_script_spawn_interval", "脚本生成间隔（秒）",
         0.5, 600.0, 0.5, false, true, TRV_INTERVAL,

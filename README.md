@@ -2,10 +2,10 @@
 
 [Left 4 Dead 2](https://store.steampowered.com/app/550/) **Tank Run** 模式的服务端插件，以及围绕它整理的研究笔记、接口文档与构建工具。
 
-- **控制中心**：让服主控制 AI Tank 何时出现、刷在哪里、满员后换掉哪一只、首次接敌是否优先投石。玩家用原版客户端即可加入。
-- **当前版本**：v2.2.8（`tankdirector_menu.smx`）
+- **控制中心**：让服主控制 AI Tank 何时出现、刷在哪里、满员后换掉哪一只、首次接敌是否严格优先投石，以及分阶段拳种/距离与投石视角控制。玩家用原版客户端即可加入。
+- **当前版本**：v2.2.11（`tankdirector_menu.smx`）
 - **平台**：Windows 专用服务器或本地服务器；SourceMod 1.12
-- **状态**：已编译、已打包；**行为效果仍需在真实服务器上验证**——本文档不会把「编译通过」说成「验证通过」
+- **状态**：已严格编译、已打包；核心首石方案 1b 与极速扔饼基线（`v2.2.10`）已在 Steam 本地单人 `c1m2_streets` 完成 145 只 AI Tank 实测，`v2.2.11` 远距拍障过滤及多人/其余地图/128 tick **仍需在真实服务器上验证**——本文档不会把局部验证说成全面验证
 
 > **许可证：[GPL-3.0-or-later](LICENSE)。** 全文见 [`LICENSE`](LICENSE)；第三方组件的版权归属、编译期嵌入说明与 `gamedata` 签名的披露见 [`NOTICE`](NOTICE)；逐文件版权与来源审计见 [版权与许可证审计](docs/audit/copyright-audit.md)。
 
@@ -16,7 +16,7 @@
 **服主**
 
 1. 确认依赖：MetaMod:Source + SourceMod 1.12 + [Left4DHooks](https://github.com/SilvDev/Left4DHooks) + SDKHooks / SDKTools。
-2. 下载 [v2.2.8 独立发行包](dist/TankRun-Control-Center-v2.2.8-full.zip)。包内附有 LICENSE、NOTICE、对应源码及[重新构建说明](SOURCE.md)。
+2. 下载 [v2.2.11 独立发行包](dist/TankRun-Control-Center-v2.2.11-full.zip)。包内附有 LICENSE、NOTICE、对应源码及[重新构建说明](SOURCE.md)。
 3. 解压到工作目录，把其中的 `addons` 合并到游戏的 `left4dead2/addons`，安装后应有：
 
    ```
@@ -24,7 +24,7 @@
    addons/sourcemod/gamedata/tankrun_firstrock.txt
    ```
 
-4. 重启服务端，`sm plugins list` 应显示 `Tank Run Control Center 2.2.8`。
+4. 重启服务端，`sm plugins list` 应显示 `Tank Run Control Center 2.2.11`。
 5. 管理员聊天输入 `!tank` 打开中文菜单。
 
 完整步骤与校验哈希：[安装指南](docs/getting-started/install.md) · 装完验收：[首次运行与验收](docs/getting-started/quickstart.md)
@@ -57,7 +57,7 @@
 | 目录 | 内容 | 读者 |
 |---|---|---|
 | [docs/getting-started/](docs/getting-started/) | 依赖、安装、首跑、升级回滚 | 服主 |
-| [docs/user-guide/](docs/user-guide/) | v2.2.8 功能、菜单、命令、参数、预设、验收剧本 | 服主 / 管理员 |
+| [docs/user-guide/](docs/user-guide/) | v2.2.11 功能、菜单、命令、参数、预设、验收剧本 | 服主 / 管理员 |
 | [docs/reference/](docs/reference/) | 接口参考、**接口稳定性分级**、版本表、文件布局 | 二次开发 |
 | [docs/research/](docs/research/) | 研究结论分级：已验证 / 实验性 / 推测 | 研究者 |
 | [docs/project/](docs/project/) | 架构、构建、测试、证据政策、贡献指南、**公开发行范围** | 贡献者 |
@@ -113,7 +113,7 @@
 
 ## 32 位与 64 位
 
-- **当前只支持 32 位。** 全部地址、偏移、字节签名绑定 `server.dll` SHA256 `a93ec916…`。见 [32 位基线](docs/compatibility/32-bit-baseline.md)。
+- **当前只支持 32 位。** 基线分析地址与偏移绑定 `server.dll` SHA256 `a93ec916…`；`gamedata/tankrun_firstrock.txt` 中的 `CTankClaw::PrimaryAttack` 字节签名已于 2026-11-25 离线核验，在更新版 Steam `server.dll`（`6c543884…`）中亦唯一匹配（1/1）。见 [32 位基线](docs/compatibility/32-bit-baseline.md)。
 - **64 位没有实现，也没有做过逆向。** 计划与兼容层设计见 [64 位计划](docs/compatibility/64-bit-plan.md) 与 [64 位兼容层设计](docs/compatibility/64-bit-compat-layer.md)。设计文档不构成实现承诺。
 
 ---
@@ -136,10 +136,10 @@
 
 ## 已知限制（不要当成「已完成」）
 
-1. **所有行为级改动只做过编译与静态检查。** 游戏内效果由玩家验证。
+1. **尚未达到全场景验证。** `v2.2.10` 在 Steam 本地单人 `c1m2_streets` 完成一轮 145 只 AI Tank 实测，`v2.2.11` 新增远距拍障过滤以及多人专用服、其余地图和更多策略组合仍需在实服验证。
 2. **100 tick 基线。** 128 tick 完全无数据。
 3. **遮挡刷点在真实地图上的分布未验证。**
-4. **首石成功率未知。** 超时是正常结局。
+4. **首石受引擎原生约束。** Easy/Normal 开局 10 秒存在原生禁投门，且起手前摇遭硬直打断时会按方案 1b 解锁近战防木桩；若将 `tankrun_firstrock_timeout` 设为正数，超时仍会恢复近战。
 5. **八个真实 Steam 客户端未验证**（8 席位只用服务器 Bot 测过）。
 6. **补位 Tank 不是原版 AI**：地图 NAV + 实体碰撞追击、盒形命中，未复刻翻越/爬梯/逐骨骼命中。
 

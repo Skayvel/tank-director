@@ -15,7 +15,7 @@
 
 ## 1. Tank 生成与数量管理（SEC_SPAWN）
 
-参数：`tankrun_auto_spawn`、`tankrun_auto_interval`、`tankrun_auto_limit`、`tankrun_rotate_oldest`、`tankrun_auto_double`、`tankrun_spawn_mode`。
+参数：`tankrun_auto_spawn`、`tankrun_auto_interval`、`tankrun_auto_limit`、`tankrun_rotate_oldest`、`tankrun_fast_slot_reclaim`、`tankrun_auto_double`、`tankrun_spawn_mode`。
 
 动作项：
 
@@ -79,10 +79,13 @@
 |---|---:|---|
 | `tankrun_rock_types` | `15` | 下勾 `1`、单手过肩 `2`、腰侧 `4`、双手过顶 `8`，累加多选，`0` 禁投 |
 | `tankrun_rock_no_turn` | `0` | `1` 为不改变视角，统一使用抬手前视角 |
+| `tankrun_rock_keep_loft` | `1` | `1` 锁视角时仅锁水平 Yaw，保留引擎计算的俯仰抬角 Pitch，防砸脚 |
+| `tankrun_rock_after_delay` | `0.35` | 抬手后锁角模式等待转向完成的采样延迟（秒） |
+| `tankrun_rock_cancel_clear_stamina` | `0` | 实验项：投石前摇被硬直中断时尝试清零体力减速惩罚 |
 | `tankrun_rock_view_undercut`、`tankrun_rock_view_onehand`、`tankrun_rock_view_hip`、`tankrun_rock_view_twohand` | `0` | `0` 原版跟随，`1` 抬手前，`2` 抬手后 |
 | `tankrun_rock_recovery` | `0.75` | 真实离手、投石动画中断或起手超时后，继续保持投石阶段的秒数 |
 
-投石拳击规则从原版抬手事件开始，持续到恢复时间结束。锁定启用时，Tank 在该窗口保持俯仰和朝向，恢复时间结束后以每秒最多 180° 逐步恢复转向。石头沿锁定的水平朝向出手，保留当次原版释放向量的竖直分量，再应用力度倍率。这里的投石类型指原版抛掷动作。两套配置仅作用于原生 AI Tank 的攻击路径，游戏内行为见[验收剧本](validation-playbook.md)。
+投石拳击规则从原版抬手事件开始，持续到恢复时间结束。锁定启用时，Tank 在该窗口保持锁定水平朝向（开启 `tankrun_rock_keep_loft` 时保留引擎 Pitch 抬角），恢复时间结束后以每秒最多 180° 逐步恢复转向并追上目标朝向即释放。石头沿锁定的水平朝向出手，保留当次原版释放向量的竖直分量，再应用力度倍率。这里的投石类型指原版抛掷动作。两套配置仅作用于原生 AI Tank 的攻击路径，游戏内行为见[验收剧本](validation-playbook.md)。
 
 插件参数：`tankrun_rock_enabled`、`tankrun_rock_min_delay`、`tankrun_rock_force_scale`。
 原生参数：`z_tank_throw_interval`、`tank_throw_min_interval`、`z_tank_throw_fail_interval`、`tank_throw_allow_range`、`z_tank_throw_force`、`tank_throw_lead_time_factor`、`tank_throw_loft_rate`、`tank_throw_max_loft_angle`、`tank_throw_aim_error`、`tank_rock_overhead_percent`。
@@ -99,14 +102,15 @@
 
 ## 5. Tank 目标与行为策略（SEC_TARGET）
 
-参数：`tankrun_target_mode`、`tankrun_target_fixed`、`tankrun_target_scan`、`tankrun_firstrock_enabled`、`tankrun_firstrock_timeout`、`tankrun_firstrock_attempts`、`tankrun_ai_only`。
+参数：`tankrun_target_mode`、`tankrun_target_fixed`、`tankrun_target_skip_incap`、`tankrun_target_hysteresis`、`tankrun_target_scan`、`tankrun_firstrock_enabled`、`tankrun_firstrock_allow_props`、`tankrun_firstrock_quick_throw`、`tankrun_firstrock_quick_range`、`tankrun_firstrock_timeout`、`tankrun_firstrock_attempts`、`tankrun_ai_only`。
 
 动作项：`查看每个 Tank 的接敌与策略状态`、`刷新实际值`。
 
 要点：
 
-- 目标策略只覆盖 `L4D2_OnChooseVictim` 路径，标为「效果未验证」。
-- 首石窗口超时在**离地期间暂停**；稳定落地后恢复完整时间。
+- 目标策略只覆盖 `L4D2_OnChooseVictim` 路径，标为「效果未验证」；`tankrun_target_skip_incap` 与 `tankrun_target_hysteresis` 用于避免选到倒地目标或频繁抖动切换。
+- 首石（方案 1b）出生即严锁拳击；`tankrun_firstrock_timeout` 默认 `0.0`（禁用时间超时），如需超时回退可设正数（离地期间暂停计时，落地后恢复）。
+- `tankrun_firstrock_allow_props` 控制首石前是否允许远离幸存者时拍车/破障；`tankrun_firstrock_quick_throw` 与 `_quick_range` 控制近距禁拳时落地极速拉起原版右键投石。
 - `tankrun_ai_only 1` 时玩家控制的 Tank 只观察不修改。
 
 ---
@@ -129,7 +133,7 @@
 
 ## 7. AI Director 与游戏规则（SEC_RULES）
 
-原生参数：`z_spawn_range`、`z_spawn_safety_range`、`z_finale_spawn_tank_safety_range`、`nb_allow_avoiding`、`nb_allow_climbing`。
+原生参数：`z_spawn_range`、`z_spawn_safety_range`、`z_finale_spawn_tank_safety_range`、`nb_allow_avoiding`、`nb_allow_climbing`、`tank_stuck_failsafe`、`tank_stuck_time_choose_new_target`、`tank_stuck_time_suicide`、`tank_visibility_tolerance_suicide`。
 脚本参数：`tankrun_script_spawn_interval`、`tankrun_script_tank_limit`、`tankrun_script_double_tanks`、`tankrun_script_tank_health`。
 
 动作项：`刷新实际值` 与脚本状态行。
