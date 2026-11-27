@@ -98,6 +98,7 @@ void ShowMainMenu(int client)
     menu.AddItem("sec:8", "9. 参数预设与配置保存");
     menu.AddItem("sec:9", "10. 实时监控与调试");
     menu.AddItem("sec:10", "11. 插件状态、兼容性与帮助");
+    menu.AddItem("menu2", "12. 二号功能菜单（!tank2）");
     menu.AddItem("off", "关闭菜单");
     menu.Display(client, MENU_TIME_FOREVER);
 }
@@ -119,6 +120,11 @@ public int Handler_Main(Menu menu, MenuAction action, int client, int item)
     }
     char info[64];
     menu.GetItem(item, info, sizeof(info));
+    if (StrEqual(info, "menu2"))
+    {
+        ShowMenu2(client);
+        return 0;
+    }
     if (StrContains(info, "sec:") == 0)
     {
         TR_Section section = view_as<TR_Section>(StringToInt(info[4]));
@@ -131,6 +137,271 @@ public int Handler_Main(Menu menu, MenuAction action, int client, int item)
             default:           ShowSectionMenu(client, section);
         }
     }
+    return 0;
+}
+
+// ---------------------------------------------------------------- 二号并列菜单（!tank2 / sm_tank2）
+void ShowMenu2(int client)
+{
+    g_iMenuView[client] = 400;
+    char mode[64];
+    char map[128];
+    TR_GetMode(mode, sizeof(mode));
+    GetCurrentMap(map, sizeof(map));
+
+    char title[192];
+    Format(title, sizeof(title), "Tank Run 二号功能菜单 v%s\n模式：%s　地图：%s\n功能开关：%s",
+        TR_VERSION, mode, map, TR_FeatureEnabled() ? "开启" : "关闭");
+
+    Menu menu = TR_NewMenu(Handler_Menu2, title, false);
+    // 严格按产品顺序排列：1. 模式选择  2. 处死选择  3. 锁定选择
+    menu.AddItem("m2:mode", "1. 模式选择");
+    menu.AddItem("m2:slay", "2. 处死选择");
+    menu.AddItem("m2:lock", "3. 锁定选择");
+    menu.AddItem("a:main1", "返回一号主菜单（!tank）");
+    menu.AddItem("off", "关闭菜单");
+    menu.Display(client, MENU_TIME_FOREVER);
+}
+
+public int Handler_Menu2(Menu menu, MenuAction action, int client, int item)
+{
+    if (action == MenuAction_End)
+    {
+        delete menu;
+        return 0;
+    }
+    if (!TR_CanOpen(client))
+    {
+        return 0;
+    }
+    if (action != MenuAction_Select)
+    {
+        return 0;
+    }
+    char info[64];
+    menu.GetItem(item, info, sizeof(info));
+    if (StrEqual(info, "m2:mode"))
+    {
+        ShowMenu2Mode(client);
+    }
+    else if (StrEqual(info, "m2:slay"))
+    {
+        ShowMenu2Slay(client);
+    }
+    else if (StrEqual(info, "m2:lock"))
+    {
+        ShowMenu2Lock(client);
+    }
+    else if (StrEqual(info, "a:main1"))
+    {
+        ShowMainMenu(client);
+    }
+    return 0;
+}
+
+void ShowMenu2Mode(int client)
+{
+    g_iMenuView[client] = 401;
+    char title[192];
+    Format(title, sizeof(title), "二号菜单 - 模式选择\n死门状态：%s\n仅切换倒地即死规则，不切模式、不重启、不追杀已倒地玩家",
+        g_bDeathsDoorActive ? "开启" : "关闭");
+
+    Menu menu = TR_NewMenu(Handler_Menu2Mode, title, true);
+    int draw = TR_EditDraw(client);
+    char label[96];
+    Format(label, sizeof(label), "死门：%s", (g_cvDeathsDoor != null && g_cvDeathsDoor.BoolValue && g_bDeathsDoorActive) ? "开" : "关");
+    menu.AddItem("m2:deaths_door", label, draw);
+    menu.AddItem("x:pending", "待定", ITEMDRAW_DISABLED);
+    menu.AddItem("a:menu2", "返回二号菜单");
+    menu.Display(client, MENU_TIME_FOREVER);
+}
+
+public int Handler_Menu2Mode(Menu menu, MenuAction action, int client, int item)
+{
+    if (action == MenuAction_End)
+    {
+        delete menu;
+        return 0;
+    }
+    if (!TR_CanOpen(client))
+    {
+        return 0;
+    }
+    if (action == MenuAction_Cancel)
+    {
+        if (item == MenuCancel_ExitBack)
+        {
+            ShowMenu2(client);
+        }
+        return 0;
+    }
+    if (action != MenuAction_Select)
+    {
+        return 0;
+    }
+    char info[64];
+    menu.GetItem(item, info, sizeof(info));
+    if (StrEqual(info, "a:menu2"))
+    {
+        ShowMenu2(client);
+        return 0;
+    }
+    if (StrEqual(info, "m2:deaths_door"))
+    {
+        if (!TR_CanEdit(client))
+        {
+            TR_Chat(client, "权限不足：只读模式或插件关闭时无法修改");
+            ShowMenu2Mode(client);
+            return 0;
+        }
+        bool targetState = !g_bDeathsDoorActive;
+        char msg[160];
+        bool ok = TR_DeathsDoor_SetEnabled(targetState, msg, sizeof(msg));
+        TR_Chat(client, "%s", msg);
+        if (ok)
+        {
+            TR_Log("管理员#%d 通过 !tank2 切换死门模式为 %d", client, targetState ? 1 : 0);
+        }
+        ShowMenu2Mode(client);
+        return 0;
+    }
+    ShowMenu2Mode(client);
+    return 0;
+}
+
+void ShowMenu2Slay(int client)
+{
+    g_iMenuView[client] = 402;
+    char title[256];
+    if (TR_Glow_IsNativeTargetPathEnabled())
+    {
+        Format(title, sizeof(title), "二号菜单 - 处死选择\n骗饼原版目标：已就绪（ThrowRockHelper +0x34）\n仅 Tank Run 合作生效，默认关闭");
+    }
+    else
+    {
+        Format(title, sizeof(title), "二号菜单 - 处死选择\n骗饼原版路径已关闭：%s\n（容量补位路径仍独立可用，不猜测原生目标）", g_sGlowNativeStatus);
+    }
+    Menu menu = TR_NewMenu(Handler_Menu2Slay, title, true);
+    int draw = TR_EditDraw(client);
+    char label[96];
+    Format(label, sizeof(label), "骗拳处死：%s", (g_cvBaitPunchSlay != null && g_cvBaitPunchSlay.BoolValue) ? "开" : "关");
+    menu.AddItem("m2:bait_punch", label, draw);
+    Format(label, sizeof(label), "骗饼处死：%s", (g_cvBaitRockSlay != null && g_cvBaitRockSlay.BoolValue) ? "开" : "关");
+    menu.AddItem("m2:bait_rock", label, draw);
+    menu.AddItem("a:menu2", "返回二号菜单");
+    menu.Display(client, MENU_TIME_FOREVER);
+}
+
+public int Handler_Menu2Slay(Menu menu, MenuAction action, int client, int item)
+{
+    if (action == MenuAction_End)
+    {
+        delete menu;
+        return 0;
+    }
+    if (!TR_CanOpen(client))
+    {
+        return 0;
+    }
+    if (action == MenuAction_Cancel)
+    {
+        if (item == MenuCancel_ExitBack)
+        {
+            ShowMenu2(client);
+        }
+        return 0;
+    }
+    if (action != MenuAction_Select)
+    {
+        return 0;
+    }
+    char info[64];
+    menu.GetItem(item, info, sizeof(info));
+    if (StrEqual(info, "a:menu2"))
+    {
+        ShowMenu2(client);
+        return 0;
+    }
+    bool rock = StrEqual(info, "m2:bait_rock");
+    if (rock || StrEqual(info, "m2:bait_punch"))
+    {
+        if (!TR_CanEdit(client))
+        {
+            TR_Chat(client, "权限不足：只读模式或插件关闭时无法修改");
+            ShowMenu2Slay(client);
+            return 0;
+        }
+        int idx = TR_FindParamByName(rock ? "tankrun_bait_rock_slay" : "tankrun_bait_punch_slay");
+        bool curVal = rock ? (g_cvBaitRockSlay != null && g_cvBaitRockSlay.BoolValue)
+            : (g_cvBaitPunchSlay != null && g_cvBaitPunchSlay.BoolValue);
+        bool next = !curVal;
+        if (idx >= 0 && TR_ParamWrite(idx, next ? 1.0 : 0.0, false))
+        {
+            TR_Chat(client, "%s已%s", rock ? "骗饼处死" : "骗拳处死", next ? "开启" : "关闭");
+            if (rock && next)
+            {
+                if (!TR_Glow_IsNativeTargetPathEnabled())
+                {
+                    TR_Chat(client, "说明：原版 AI Tank 骗饼路径已关闭（%s），当前仅容量补位 Tank 生效", g_sGlowNativeStatus);
+                }
+                if (!TR_IsTankRunCoop())
+                {
+                    TR_Chat(client, "说明：当前非 Tank Run 合作模式，骗饼处死将在进入 Tank Run 合作后生效");
+                }
+            }
+            TR_Log("管理员#%d 通过 !tank2 切换%s为 %d", client, rock ? "骗饼处死" : "骗拳处死", next ? 1 : 0);
+        }
+        else
+        {
+            TR_Chat(client, "%s切换未生效", rock ? "骗饼处死" : "骗拳处死");
+        }
+        ShowMenu2Slay(client);
+        return 0;
+    }
+    ShowMenu2Slay(client);
+    return 0;
+}
+
+void ShowMenu2Lock(int client)
+{
+    g_iMenuView[client] = 403;
+    Menu menu = TR_NewMenu(Handler_Menu2Lock, "二号菜单 - 锁定选择\n当前仅提供占位引导，不改变旧锁定逻辑", true);
+    menu.AddItem("x:rank_guide", "段位引导（待定）", ITEMDRAW_DISABLED);
+    menu.AddItem("a:menu2", "返回二号菜单");
+    menu.Display(client, MENU_TIME_FOREVER);
+}
+
+public int Handler_Menu2Lock(Menu menu, MenuAction action, int client, int item)
+{
+    if (action == MenuAction_End)
+    {
+        delete menu;
+        return 0;
+    }
+    if (!TR_CanOpen(client))
+    {
+        return 0;
+    }
+    if (action == MenuAction_Cancel)
+    {
+        if (item == MenuCancel_ExitBack)
+        {
+            ShowMenu2(client);
+        }
+        return 0;
+    }
+    if (action != MenuAction_Select)
+    {
+        return 0;
+    }
+    char info[64];
+    menu.GetItem(item, info, sizeof(info));
+    if (StrEqual(info, "a:menu2"))
+    {
+        ShowMenu2(client);
+        return 0;
+    }
+    ShowMenu2Lock(client);
     return 0;
 }
 
@@ -1527,8 +1798,8 @@ public int Handler_Status(Menu menu, MenuAction action, int client, int item)
 void ShowHelpMenu(int client)
 {
     g_iMenuView[client] = SEC_STATUS;
-    Menu menu = TR_NewMenu(Handler_Help, "帮助与命令\n聊天：!tank 打开菜单\n控制台：以下命令", true);
-    menu.AddItem("x:1", "sm_tank / sm_tankmenu：打开本菜单", ITEMDRAW_DISABLED);
+    Menu menu = TR_NewMenu(Handler_Help, "帮助与命令\n聊天：!tank / !tank2 打开菜单\n控制台：以下命令", true);
+    menu.AddItem("x:1", "sm_tank / sm_tankmenu / sm_tank2：打开主菜单或二号菜单", ITEMDRAW_DISABLED);
     menu.AddItem("x:2", "sm_tank_status：文本状态", ITEMDRAW_DISABLED);
     menu.AddItem("x:3", "sm_tank_diag：诊断摘要并写日志", ITEMDRAW_DISABLED);
     menu.AddItem("x:4", "sm_tank_dump：导出诊断文件", ITEMDRAW_DISABLED);

@@ -41,6 +41,11 @@ void TR_ClearRockMotion(int tank)
     reset.sampleTick = -1;
     reset.turnTick = -1;
     g_RockMotion[tank] = reset;
+    if (tank >= 1 && tank <= MaxClients)
+    {
+        g_fTankPendingActivation[tank] = 0.0;
+        TR_Glow_EndNativeThrow(tank);
+    }
 }
 
 bool TR_InRockPhase(int tank, float now)
@@ -216,21 +221,32 @@ float TR_ViewDelta(float target, float current)
 
 void TR_EndRockWindup(int tank, float now, const char[] reason)
 {
-    if (g_RockMotion[tank].windupUntil <= 0.0) return;
+    bool hadActive = g_RockMotion[tank].windupUntil > 0.0 || g_fTankPendingActivation[tank] > 0.0;
+    if (!hadActive) return;
+    g_fTankPendingActivation[tank] = 0.0;
+    g_RockMotion[tank].activating = false;
+    g_RockMotion[tank].animationRequested = false;
     g_RockMotion[tank].windupUntil = 0.0;
     g_RockMotion[tank].recoveryUntil = now + g_cvRockRecovery.FloatValue;
     if (g_RockMotion[tank].locked)
         g_RockMotion[tank].returnUntil = g_RockMotion[tank].recoveryUntil + 1.0;
+    TR_BaitRockCancelWindup(tank);
+    TR_Glow_EndNativeThrow(tank);
     TR_LogEvent("投石阶段结束起手：Tank#%d 原因=%s 恢复=%.2f 锁定=%d 俯仰=%.2f 朝向=%.2f", tank, reason,
         g_cvRockRecovery.FloatValue, g_RockMotion[tank].locked, g_RockMotion[tank].view[0], g_RockMotion[tank].view[1]);
 }
 
 void TR_UpdateRockMotion(int tank, float now, const float angles[3])
 {
-    if (g_RockMotion[tank].windupUntil <= 0.0) return;
-    if (now >= g_RockMotion[tank].windupUntil)
+    if (g_RockMotion[tank].windupUntil <= 0.0 && g_fTankPendingActivation[tank] <= 0.0) return;
+    if (g_RockMotion[tank].windupUntil > 0.0 && now >= g_RockMotion[tank].windupUntil)
     {
         TR_EndRockWindup(tank, now, "超时未离手");
+        return;
+    }
+    if (g_fTankPendingActivation[tank] > 0.0 && (now - g_fTankPendingActivation[tank]) > TR_ROCK_WINDUP_LIMIT)
+    {
+        TR_EndRockWindup(tank, now, "待激活超时未离手");
         return;
     }
     if (TR_IsTankStaggering(tank))
@@ -242,7 +258,14 @@ void TR_UpdateRockMotion(int tank, float now, const float angles[3])
     int type = TR_FindAttackType(TR_RockSequences, sizeof(TR_RockSequences), sequence);
     if (type < 0)
     {
-        if (g_RockMotion[tank].animationSeen) TR_EndRockWindup(tank, now, "投石动画中断");
+        if (g_RockMotion[tank].animationSeen)
+        {
+            TR_EndRockWindup(tank, now, "投石动画中断");
+        }
+        else if (g_fTankPendingActivation[tank] > 0.0 && (now - g_fTankPendingActivation[tank]) > 0.35)
+        {
+            TR_EndRockWindup(tank, now, "投石动画未进入序列");
+        }
         return;
     }
     if (!g_RockMotion[tank].animationSeen && type != g_RockMotion[tank].type)

@@ -13,6 +13,7 @@
 #define TR_ACT_TANK_OVERHEAD_THROW 762
 #define TR_FIRST_ROCK_TERRAIN_GRACE 6.0
 #define TR_FIRST_ROCK_EXIT_CLAW_GRACE 1.75
+#define TR_ROCK_SETTLE_MAX_AGE 15.0
 
 DynamicDetour g_hFirstRockClawGate;
 ConVar g_cvAiAbilities;
@@ -127,10 +128,94 @@ bool TR_IsTankThrowPending(int tank)
         || g_RockMotion[tank].activating || g_RockMotion[tank].animationRequested;
 }
 
+bool TR_HasNativeRockInFlight(int tank)
+{
+    if (tank < 1 || tank > MaxClients || !TR_IsTankClient(tank))
+    {
+        return false;
+    }
+    if (TR_IsTankThrowPending(tank) || TR_BaitRockWaiting(GetClientUserId(tank), -1))
+    {
+        return true;
+    }
+    int rockRef = g_iTankRockLastRef[tank];
+    if (rockRef != 0 && rockRef != INVALID_ENT_REFERENCE)
+    {
+        int rockEnt = EntRefToEntIndex(rockRef);
+        float elapsed = GetEngineTime() - g_fTankRockReleaseClock[tank];
+        if (rockEnt > MaxClients && IsValidEntity(rockEnt) && elapsed >= 0.0 && elapsed <= TR_ROCK_SETTLE_MAX_AGE)
+        {
+            char cls[24];
+            if (GetEntityClassname(rockEnt, cls, sizeof(cls)) && StrEqual(cls, "tank_rock"))
+            {
+                return true;
+            }
+        }
+        g_iTankRockLastRef[tank] = INVALID_ENT_REFERENCE;
+    }
+    return false;
+}
+
+// 满员轮换投石/石头结算保护接口（原版路径）。
+// 依赖说明：精确的引擎原生投石中断与石头结算临界判定待 ULTRA REA 研究结论接入后替换内部实现；
+// 当前保守守卫覆盖：(1) 投石激活/起手/硬直恢复阶段；(2) 该 Tank 已离手且仍在飞行的 tank_rock 实体未 Detonate/销毁期间（设 15s 安全上界防死锁）。
+bool TR_IsNativeTankRockProtected(int tank, char[] reason = "", int reasonLen = 0)
+{
+    if (tank < 1 || tank > MaxClients || !TR_IsTankClient(tank))
+    {
+        return false;
+    }
+    float now = GetGameTime();
+    if (TR_IsTankThrowPending(tank) || TR_InRockPhase(tank, now))
+    {
+        if (reasonLen > 0) strcopy(reason, reasonLen, "原版投石起手/恢复保护");
+        return true;
+    }
+    if (TR_BaitRockWaiting(GetClientUserId(tank), -1))
+    {
+        if (reasonLen > 0) strcopy(reason, reasonLen, "原石等待当帧命中结算");
+        return true;
+    }
+    int rockRef = g_iTankRockLastRef[tank];
+    if (rockRef != 0 && rockRef != INVALID_ENT_REFERENCE)
+    {
+        int rockEnt = EntRefToEntIndex(rockRef);
+        float elapsed = GetEngineTime() - g_fTankRockReleaseClock[tank];
+        if (rockEnt > MaxClients && IsValidEntity(rockEnt) && elapsed >= 0.0 && elapsed <= TR_ROCK_SETTLE_MAX_AGE)
+        {
+            char cls[24];
+            if (GetEntityClassname(rockEnt, cls, sizeof(cls)) && StrEqual(cls, "tank_rock"))
+            {
+                if (reasonLen > 0) strcopy(reason, reasonLen, "原版石头飞行待结算保护");
+                return true;
+            }
+        }
+        g_iTankRockLastRef[tank] = INVALID_ENT_REFERENCE;
+    }
+    return false;
+}
+
+void TR_Rock_OnEntityDestroyed(int entity)
+{
+    if (entity <= MaxClients)
+    {
+        return;
+    }
+    int ref = EntIndexToEntRef(entity);
+    for (int i = 1; i <= MaxClients; i++)
+    {
+        if (g_iTankRockLastRef[i] == ref)
+        {
+            g_iTankRockLastRef[i] = INVALID_ENT_REFERENCE;
+        }
+    }
+}
+
 void TR_OnRockCancelled(int tank, const char[] reason)
 {
     if (tank <= 0 || tank > MaxClients) return;
     float now = GetGameTime();
+    TR_BaitRockCancelWindup(tank);
     bool hadPending = TR_IsTankThrowPending(tank);
     if (!hadPending)
     {
@@ -141,6 +226,7 @@ void TR_OnRockCancelled(int tank, const char[] reason)
     g_fTankPendingActivation[tank] = 0.0;
     g_RockMotion[tank].activating = false;
     g_RockMotion[tank].animationRequested = false;
+    TR_Glow_EndNativeThrow(tank);
     if (g_RockMotion[tank].windupUntil > 0.0)
     {
         TR_EndRockWindup(tank, now, reason);
@@ -387,15 +473,32 @@ public void L4D_OnDoAnimationEvent_Post(int client, int event, int variantParam)
         // CThrow emits this only after passing its initial eligibility gates.
         float now = GetGameTime();
         g_fTankPendingActivation[client] = now;
+        TR_BaitRockNativeWindup(client);
         if (g_RockMotion[client].animationRequested)
         {
             TR_ConfirmRockWindup(client, now);
             TR_PostThinkRockView(client);
         }
+        TR_Glow_BeginNativeThrow(client);
+        return;
+    }
+    if (activityEvent == PLAYERANIMEVENT_HAND_ATTACK || activityEvent == PLAYERANIMEVENT_HAND_LOW_ATTACK)
+    {
+        if (g_fTankPendingActivation[client] > 0.0 || g_RockMotion[client].windupUntil > 0.0)
+        {
+            TR_EndRockWindup(client, GetGameTime(), "切换为拳击动画");
+        }
+        TR_Bait_BeginNativeSwing(client, activityEvent == PLAYERANIMEVENT_HAND_LOW_ATTACK,
+            activityEvent == PLAYERANIMEVENT_HAND_LOW_ATTACK ? "HAND_LOW_ATTACK" : "HAND_ATTACK");
         return;
     }
     if (activityEvent == PLAYERANIMEVENT_JUMP || activityEvent == PLAYERANIMEVENT_TANK_CLIMB || activityEvent == PLAYERANIMEVENT_LAND)
     {
+        if ((activityEvent == PLAYERANIMEVENT_JUMP || activityEvent == PLAYERANIMEVENT_TANK_CLIMB)
+            && (g_fTankPendingActivation[client] > 0.0 || g_RockMotion[client].windupUntil > 0.0))
+        {
+            TR_EndRockWindup(client, GetGameTime(), "投石被攀跳中断");
+        }
         if (!TR_FirstRockEnabled()) return;
         if (!g_bTankTracked[client] || g_iTankUserId[client] != GetClientUserId(client))
             TR_TrackTank(client, "首个攀跳事件");
@@ -410,6 +513,9 @@ public void L4D_OnDoAnimationEvent_PostHandled(int client, int event, int varian
     if (!TR_AttackControlsActive(client) || event != view_as<int>(PLAYERANIMEVENT_ROCK_THROW)) return;
     g_RockMotion[client].animationRequested = false;
     g_RockMotion[client].activating = false;
+    g_fTankPendingActivation[client] = 0.0;
+    TR_BaitRockCancelWindup(client);
+    TR_Glow_EndNativeThrow(client);
 }
 
 void TR_UpdateFirstRockWindow(int tank, float now)
@@ -499,7 +605,10 @@ void TR_UpdateRockWindows()
         // 投石激活后长时间没有真实释放：记录可观测的失败信息；若原生能力已进入长冷却则按方案1b解锁防木桩。
         if (g_fTankPendingActivation[i] > 0.0 && now - g_fTankPendingActivation[i] > TR_ROCK_WINDUP_LIMIT)
         {
+            TR_BaitRockCancelWindup(i);
             g_fTankPendingActivation[i] = 0.0;
+            g_RockMotion[i].windupUntil = 0.0;
+            TR_Glow_EndNativeThrow(i);
             g_iStatActivationNoRelease++;
             TR_LogEvent("投石可观测失败：Tank#%d 激活后 %.2f 秒内没有离手后回调", i, TR_ROCK_WINDUP_LIMIT);
             if (TR_IsAiTank(i) && !g_bTankFirstRockDone[i] && TR_GetThrowAbilityCooldownRemaining(i, now) > 5.0)
@@ -651,6 +760,7 @@ bool TR_TryQuickFirstRock(int tank, float now, bool triedPunch, int &buttons, fl
 public Action OnPlayerRunCmd(int client, int &buttons, int &impulse, float move[3], float angles[3],
     int &weapon, int &subtype, int &cmdnum, int &tickcount, int &seed, int mouse[2])
 {
+    HS_OnPlayerRunCmd(client, buttons, impulse, angles);
     if (!TR_AttackControlsActive(client)) return Plugin_Continue;
     float now = GetGameTime();
     bool changed = TR_ControlRockCmd(client, now, move, angles);
@@ -984,6 +1094,7 @@ public void L4D_OnCThrowActivate_Post(int ability)
     float now = GetGameTime();
     if (g_fTankPendingActivation[tank] > 0.0 && now - g_fTankPendingActivation[tank] <= GetTickInterval())
     {
+        TR_Glow_UpdateNativeTank(tank);
         TR_LogEvent("投石能力发出原版动画请求：Tank#%d userid=%d ability=%d", tank, GetClientUserId(tank), ability);
     }
     else
@@ -1082,7 +1193,10 @@ public void L4D_TankRock_OnRelease_Post(int tank, int rock, const float vecPos[3
         && GetEntityClassname(rock, classname, sizeof(classname)) && StrEqual(classname, "tank_rock");
     if (TR_IsTankClient(tank))
     {
+        if (liveRock && GetVectorLength(vecVel) > 0.0) TR_BaitRockReleased(-1, tank, rock);
+        TR_BaitRockCancelWindup(tank);
         g_fTankPendingActivation[tank] = 0.0;
+        TR_Glow_EndNativeThrow(tank);
         if (TR_AttackControlsActive(tank))
         {
             TR_EndRockWindup(tank, GetGameTime(), liveRock ? "真实离手" : "释放未确认");
@@ -1115,6 +1229,8 @@ public void L4D_TankRock_OnRelease_Post(int tank, int rock, const float vecPos[3
 
 public void L4D_TankRock_OnDetonate(int tank, int rock)
 {
+    TR_BaitRockDetonate(tank, rock);
+    TC_CombatOnRockDetonate(rock);
     if (!TR_FeatureEnabled())
     {
         return;
@@ -1143,6 +1259,7 @@ public void L4D_TankClaw_DoSwing_Pre(int tank, int claw)
     {
         g_iTankSwingCount[tank]++;
         g_fTankLastSwing[tank] = GetGameTime();
+        TR_Bait_OnNativeSwingPre(tank, false);
     }
     TR_LogEvent("拳击挥击开始：Tank#%d claw=%d 动作=%d", tank, claw, g_iTankLastActivity[tank]);
 }
@@ -1153,6 +1270,7 @@ public void L4D_TankClaw_DoSwing_Post(int tank, int claw)
     {
         return;
     }
+    TR_Bait_OnNativeSwingPost(tank, false);
     TR_LogEvent("拳击挥击结束：Tank#%d claw=%d", tank, claw);
 }
 
@@ -1167,6 +1285,7 @@ public void L4D_TankClaw_GroundPound_Pre(int tank, int claw)
     {
         g_iTankSwingCount[tank]++;
         g_fTankLastSwing[tank] = GetGameTime();
+        TR_Bait_OnNativeSwingPre(tank, true);
     }
     TR_LogEvent("砸地拳开始：Tank#%d claw=%d 动作=%d", tank, claw, g_iTankLastActivity[tank]);
 }
@@ -1204,6 +1323,7 @@ public void L4D_TankClaw_OnPlayerHit_Post(int tank, int claw, int player)
     {
         return;
     }
+    TR_Bait_OnNativePlayerHit(tank, player);
     TR_LogEvent("拳击命中后：Tank#%d 玩家#%d", tank, player);
 }
 

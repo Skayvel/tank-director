@@ -73,6 +73,14 @@ $entries = [ordered]@{
     'addons/sourcemod/plugins/tankdirector_menu.smx'    = $Smx
     'addons/sourcemod/gamedata/tankrun_firstrock.txt'   = $Gamedata
 }
+$wipeGamedata = Join-Path $repoRoot 'gamedata\tankrun_wipe.txt'
+if (Test-Path -LiteralPath $wipeGamedata) {
+    $entries['addons/sourcemod/gamedata/tankrun_wipe.txt'] = $wipeGamedata
+}
+$rockTargetGamedata = Join-Path $repoRoot 'gamedata\tankrun_rocktarget.txt'
+if (Test-Path -LiteralPath $rockTargetGamedata) {
+    $entries['addons/sourcemod/gamedata/tankrun_rocktarget.txt'] = $rockTargetGamedata
+}
 
 $zipStream = [System.IO.File]::Open($zipPath, [System.IO.FileMode]::Create)
 try {
@@ -100,9 +108,17 @@ $sums = @(
     "# Tank Run Control Center v$Version",
     "# generated $(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')",
     "$smxHash  TankRun-Control-Center-v$Version/addons/sourcemod/plugins/tankdirector_menu.smx",
-    "$gdHash  TankRun-Control-Center-v$Version/addons/sourcemod/gamedata/tankrun_firstrock.txt",
-    "$zipHash  $(Split-Path $zipPath -Leaf)"
+    "$gdHash  TankRun-Control-Center-v$Version/addons/sourcemod/gamedata/tankrun_firstrock.txt"
 )
+if (Test-Path -LiteralPath $wipeGamedata) {
+    $wipeHash = (Get-FileHash -LiteralPath $wipeGamedata -Algorithm SHA256).Hash
+    $sums += "$wipeHash  TankRun-Control-Center-v$Version/addons/sourcemod/gamedata/tankrun_wipe.txt"
+}
+if (Test-Path -LiteralPath $rockTargetGamedata) {
+    $rockTargetHash = (Get-FileHash -LiteralPath $rockTargetGamedata -Algorithm SHA256).Hash
+    $sums += "$rockTargetHash  TankRun-Control-Center-v$Version/addons/sourcemod/gamedata/tankrun_rocktarget.txt"
+}
+$sums += "$zipHash  $(Split-Path $zipPath -Leaf)"
 $sumsPath = Join-Path $distDir 'SHA256SUMS.txt'
 $sums | Set-Content -LiteralPath $sumsPath -Encoding UTF8
 

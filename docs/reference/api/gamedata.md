@@ -1,6 +1,9 @@
 # gamedata 与原生签名
 
-控制中心只有一个 gamedata 文件：`gamedata/tankrun_firstrock.txt`。它是**全插件唯一的原生地址依赖**。
+控制中心包含两个可选 gamedata 文件，均只针对已静态实证的 Windows x86 `server.dll` 构建，缺失或不匹配时均安全降级、不崩溃：
+
+1. `gamedata/tankrun_firstrock.txt`：原生 `CTankClaw::PrimaryAttack` 禁拳签名（DHooks detour）。
+2. `gamedata/tankrun_wipe.txt`：`CDirector::m_RestartTimer` 结构体偏移（`windows = 616` / `0x268`），用于合作团灭（`mission_lost`）后缩短原版 7.0 秒等待并同步客户端黑屏淡出；加载前校验 Windows 平台，运行时执行 NaN 安全的正向双区间校验（`|duration - 7.0| <= 0.25` 且 `5.5 <= remaining <= 7.5`），任意不匹配时安全回退原版 7.0 秒、绝不写内存。
 
 ## 内容
 

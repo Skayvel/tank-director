@@ -63,16 +63,18 @@
 
 **不要同时启用两者的补位。** 它们会争夺同一批生成。
 
-## 5. 真人席位
+## 5. 真人席位与流程节奏
 
-`tankrun_human_seats.smx`：
+控制中心 v2.2.12 已直接内嵌 `tankrun_human_seats`（v1.3.0）席位模块与流程节奏模块（开场跳过 + 合作团灭快进），独立版 `tankrun_human_seats.smx`（v1.3.0）也可单独部署且具备自动互斥防双抢机制；若旧版独立 `tankrun_human_seats.smx`（v1.0.0/v1.1.0）仍留在 `addons/sourcemod/plugins/` 中，控制中心加载后会自动将其卸载并接管（建议同步删除旧文件）：
 
-- 默认最多 4 名幸存者；服务器有 `survivor_limit` 时沿用其值；高容量模式提升到 8。
-- 空闲幸存者 Bot 会被清理。
-- 真人连入优先沿用游戏完成的入队；仍在旁观且有空格时接管一个可用 Bot，或创建临时 Bot 再接管。
-- 退出时按 `player_bot_replace` 的 `userid` 踢出对应补位 Bot；其余闲置 Bot 每 0.25 秒检查清理。
-- 旁观玩家可聊天 `!jg` / `!join` 申请席位。
-- 关闭高容量模式或卸载插件会恢复原有 `survivor_limit`。
+- 默认最多 4 名幸存者；服务器有 `survivor_limit` 时沿用其值；高容量模式提升到 8；占槽统计同时计入在线真人的 AFK/预约替身，防止挂机后超员。
+- 空闲无主幸存者 Bot 会被清理（先清已死亡无主 Bot 再清存活无主 Bot），避免残留死 Bot 导致误判团灭；场上 0 幸存者时引擎 `CDirector::CheckForAllSurvivorsDead`（`totalSurvivors != 0 && standingSurvivors == 0`）不触发团灭，绝不碰感染者、Tank 或容量替身。
+- 在线真人的 AFK/Idle 替身（`m_humanSpectatorUserID`）保护持续至确认挂机倒计时结束并能安全解绑为止；保持玩家主动旁观与 AFK 回归，不强拉主动旁观/挂机玩家；主动普通旁观者不参与挂机计时。
+- `tankrun_afk_timeout`（默认 `30` 秒，`0`=关闭）监测无操作的真人幸存者及已使用游戏“闲置（Idle）”功能仍占替身的玩家（过场、强制禁控、过图及已死亡等待复活状态免计）；达到阈值后仅向本人显示 10 秒逐秒倒计时（`PrintCenterText` / `PrintHintText`，不广播），期间恢复操作或取回控制立即取消；倒计时归零后转入普通旁观、清除 `m_humanSpectatorUserID`/`m_humanSpectatorEntIndex` 并精准移除对应 Bot（含最后一名真人挂机转旁观时同步清理对应 Bot 归零而不触发误团灭；无确认归属不乱踢，且仍保留正常倒地/死亡团灭判定）。托管 `director_afk_timeout` 至不小于 `tankrun_afk_timeout + 120`（不置 0），既防原生 45 秒抢跑又完整保留手动“闲置”。
+- 首次连入或旁观玩家使用 `!jg` / `!join` / `jointeam 2` 申请席位时（含 0 幸存者席位回归），优先接管专属/可用存活 Bot，缺席则通过 `L4D2Direct_AddSurvivorBot` 按需生成 1 个临时 Bot 并走 `ChangeClientTeam(0)` → `L4D_SetHumanSpec` → `L4D_TakeOverBot` 流程；并发加入采用 FIFO 序列化，严格遵守客户端槽位上限。
+- 退出时按 `player_bot_replace` 的 `userid` 识别并踢出对应补位 Bot（清理前同步清理残存死无主 Bot 防误触团灭）。
+- 暂停/关闭高容量模式或卸载插件会恢复原有 `survivor_limit`。
+- `tankrun_skip_intro`（默认 `1`，仅 Tank Run 合作）跳过战役首关开场镜头并恢复玩家控制，保留开门/传送/实体 I/O，不碰终局与转场；`tankrun_fast_wipe`（默认 `1`，仅 Tank Run 合作）+ `tankrun_wipe_delay`（默认 `1.5s`）在权威 `mission_lost` 后同步缩短原版 7.0 秒团灭淡出与重启等待。
 
 **8 个席位目前只用服务器 Bot 验证过。八个真实 Steam 客户端同时认证与联机游玩仍需独立验证。**
 

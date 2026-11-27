@@ -1,6 +1,6 @@
 # 命令参考
 
-控制中心 v2.2.11 注册的全部 17 个命令。**每一条都对应源码 `scripting/tankrun/tr_diag.inc:420-442`。**
+控制中心 v2.3.0-test 注册的全部 18 个命令。**每一条都对应源码 `scripting/tankrun/tr_diag.inc`。**
 
 ## 权限模型
 
@@ -17,8 +17,9 @@
 
 | 命令 | 注册方式 | 权限 | 说明 |
 |---|---|---|---|
-| `sm_tank` | `RegConsoleCmd` | 回调内判定 | 打开主菜单 |
+| `sm_tank` | `RegConsoleCmd` | 回调内判定 | 打开主菜单（内含跳转二号菜单入口） |
 | `sm_tankmenu` | `RegConsoleCmd` | 同上 | `sm_tank` 的别名 |
+| `sm_tank2` | `RegConsoleCmd` | 同上 | 打开并列二号功能菜单（顺序：1. 模式选择 / 2. 处死选择 / 3. 锁定选择，含返回一号主菜单入口） |
 
 两个命令都是 `RegConsoleCmd`，权限在 `Command_TankMenu` 内部判断，**不是** `RegAdminCmd`。因此：
 

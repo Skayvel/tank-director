@@ -3,9 +3,10 @@
 [Left 4 Dead 2](https://store.steampowered.com/app/550/) **Tank Run** 模式的服务端插件，以及围绕它整理的研究笔记、接口文档与构建工具。
 
 - **控制中心**：让服主控制 AI Tank 何时出现、刷在哪里、满员后换掉哪一只、首次接敌是否严格优先投石，以及分阶段拳种/距离与投石视角控制。玩家用原版客户端即可加入。
-- **当前版本**：v2.2.11（`tankdirector_menu.smx`）
-- **平台**：Windows 专用服务器或本地服务器；SourceMod 1.12
-- **状态**：已严格编译、已打包；核心首石方案 1b 与极速扔饼基线（`v2.2.10`）已在 Steam 本地单人 `c1m2_streets` 完成 145 只 AI Tank 实测，`v2.2.11` 远距拍障过滤及多人/其余地图/128 tick **仍需在真实服务器上验证**——本文档不会把局部验证说成全面验证
+- **最新源码**：v2.3.0 集成测试版（插件显示 `2.3.0-test`）。[下载测试包](https://github.com/Skayvel/tank-director/releases/tag/v2.3.0-integrated-test)
+- **正式发行**：v2.2.11。[下载正式版](https://github.com/Skayvel/tank-director/releases/tag/v2.2.11)
+- **平台**：Windows 专用服务器或本地服务器，SourceMod 1.12。
+- **测试版验证**：7 个编译目标通过严格编译，隔离专服 49 项通过。真人双客户端视效、多人压测和 Linux 实机仍待验证。
 
 > **许可证：[GPL-3.0-or-later](LICENSE)。** 全文见 [`LICENSE`](LICENSE)；第三方组件的版权归属、编译期嵌入说明与 `gamedata` 签名的披露见 [`NOTICE`](NOTICE)；逐文件版权与来源审计见 [版权与许可证审计](docs/audit/copyright-audit.md)。
 
@@ -14,6 +15,10 @@
 ## 快速开始
 
 **服主**
+
+测试 v2.3.0 时，请下载 [GitHub 预发行包](https://github.com/Skayvel/tank-director/releases/tag/v2.3.0-integrated-test)，将包内 `addons` 合并到游戏的 `left4dead2/addons`。依赖见下方第一步。重启后用 `sm plugins list` 确认 `Tank Run Control Center 2.3.0-test`，管理员可用 `!tank` 和 `!tank2` 打开菜单。
+
+以下步骤适用于 v2.2.11 正式版。
 
 1. 确认依赖：MetaMod:Source + SourceMod 1.12 + [Left4DHooks](https://github.com/SilvDev/Left4DHooks) + SDKHooks / SDKTools。
 2. 下载 [v2.2.11 独立发行包](dist/TankRun-Control-Center-v2.2.11-full.zip)。包内附有 LICENSE、NOTICE、对应源码及[重新构建说明](SOURCE.md)。
@@ -45,10 +50,10 @@
 | 路径 | 内容 |
 |---|---|
 | `scripting/` | 插件源码（SourcePawn 1.12） |
-| `gamedata/` | DHooks 签名（唯一的一处原生地址依赖） |
+| `gamedata/` | DHooks 签名与版本校验数据 |
 | `configs/` | 服务器配置样例 |
 | `tools/` | 构建、打包、链接检查、SMX 段级比对脚本 |
-| `dist/` | 当前发布包（编译产物） |
+| `dist/` | 正式发行包与校验文件 |
 | `third_party/` | 外部依赖说明（不包含第三方代码） |
 | `docs/` | 文档体系 |
 

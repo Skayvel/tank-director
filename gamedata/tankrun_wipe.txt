@@ -1,0 +1,19 @@
+"Games"
+{
+    "left4dead2"
+    {
+        "Offsets"
+        {
+            // CDirector::m_RestartTimer (CountdownTimer: +0x00 vtable, +0x04 m_duration, +0x08 m_timestamp).
+            // Steam Windows server.dll, verified at CDirector::EndScenario (VA 0x10269079: Start(7.0f))
+            // and CDirector::UpdateScenarioState (VA 0x10271bfd: expiration -> CDirector::Restart)
+            // for SHA256 a93ec916a8f26fbea85688c321d2ba8dd346d435fab09a0b926dd950c2e1ea12.
+            // Runtime code performs strict dual validation (duration ~= 7.0s and remaining ~= 7.0s)
+            // before writing and falls back safely to stock 7.0s on any mismatch.
+            "CDirector::m_RestartTimer"
+            {
+                "windows"  "616"
+            }
+        }
+    }
+}

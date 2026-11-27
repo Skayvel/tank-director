@@ -95,6 +95,40 @@ void TR_PrintStatus(int client)
     TR_Reply(client, "首石优先：%s | 武器入口禁拳：%s | 投石视角：%s",
         TR_FirstRockEnabled() ? "开" : "关", g_hFirstRockClawGate != null ? "已加载" : "未加载",
         g_cvRockNoTurn.BoolValue ? "不改变视角（统一抬手前）" : "按投石类型设置");
+    int hsHumans, hsAfkBots, hsUnownedBots, hsSeatLimit, hsCountdowns;
+    HS_GetDiagnosticStats(hsHumans, hsAfkBots, hsUnownedBots, hsSeatLimit, hsCountdowns);
+    TR_Reply(client, "真人席位：%s（%s）| 真人 %d / AFK替身 %d / 空闲Bot %d / 上限 %d",
+        HS_IsActive() ? "运行中" : "未生效",
+        g_HS_YieldedToOther ? "已让权给旧版独立插件" : (g_HS_Enabled != null && g_HS_Enabled.BoolValue ? "内嵌模式" : "开关关闭"),
+        hsHumans, hsAfkBots, hsUnownedBots, hsSeatLimit);
+    TR_Reply(client, "挂机管理：阈值 %d 秒+10秒私有倒计时 | 倒计时中 %d 人 | 累计转旁观 %d 次 | 原生 director_afk_timeout=%d（%s）",
+        g_HS_AfkTimeout != null ? g_HS_AfkTimeout.IntValue : 0, hsCountdowns, g_HS_StatAfkEvictions,
+        g_HS_NativeAfkTimeout != null ? g_HS_NativeAfkTimeout.IntValue : -1,
+        g_HS_ManagedNativeAfk ? "已托管防抢跑" : "原值");
+    TR_Reply(client, "开场跳过：%s（累计 %d 次）| 团灭快进：%s（目标 %.2fs，偏移=%s，累计 %d 次/回退 %d 次，最近：%s）",
+        TR_FlowIsIntroAllowed() ? "生效" : "未生效", g_iStatIntroSkipped,
+        TR_FlowIsFastWipeAllowed() ? "生效" : "未生效", g_cvWipeDelay.FloatValue,
+        g_bWipeGamedataLoaded ? "已加载" : "未加载", g_iStatWipeAccelerated, g_iStatWipeFallbacks, g_sWipeLastResult);
+    TR_Reply(client, "取消友伤：%s（拦截直接 %d / 延迟 %d / 油桶栈=%s）| 取消水中减速：%s（%s）",
+        TR_NoFriendlyFireActive() ? "生效" : "未生效", g_iStatFFBlockedDirect, g_iStatFFBlockedDelayed,
+        g_bFFFuelBarrelDetourReady ? "已启用" : "降级",
+        TR_NoWaterSlowdownActive() ? "生效" : "未生效", g_sWaterStatus);
+    TR_Reply(client, "死门模式：%s（%s）| 骗拳处死：%s（原版 %d / 补位 %d / 死亡阻断 %d / 障碍排除 %d / 原版因果=%s）",
+        g_bDeathsDoorActive ? "开" : "关", g_sDeathsDoorLastResult,
+        TR_BaitPunchEnabled() ? "开" : "关", g_iStatBaitPunchSlaysNative, g_iStatBaitPunchSlaysReplica,
+        g_iStatBaitPunchBlockedDeath, g_iStatBaitPunchExcludedObstacle, g_sBaitNativeStatus);
+    int brCandN, brCandR, brSlayN, brSlayR, brHit, brCancel;
+    TR_BaitRockGetStats(brCandN, brCandR, brSlayN, brSlayR, brHit, brCancel);
+    TR_Reply(client, "骗饼处死：%s（开关=%d 原版目标=%s | 待结算 %d | 候选 原版%d/补位%d | 处死 原版%d/补位%d | 命中免死 %d | 取消 %d）",
+        TR_BaitRockEnabled() ? "生效" : "未生效",
+        (g_cvBaitRockSlay != null && g_cvBaitRockSlay.BoolValue) ? 1 : 0,
+        g_sGlowNativeStatus, TR_BaitRockPendingCount(),
+        brCandN, brCandR, brSlayN, brSlayR, brHit, brCancel);
+    TR_Reply(client, "仇恨提示：%s（在用代理 %d / 峰值 %d / 组 %d/8 / 溢出 %d / 原版目标=%s / 读数 %d / 锁定命中 %d）| 轮换跳过保护 %d / 延迟 %d",
+        TR_RockGlowEnabled() ? "开" : "关", g_iGlowLiveProxies, g_iGlowPeakProxies,
+        TR_Glow_CountActiveGroups(), g_iGlowOverflowCount,
+        g_sGlowNativeStatus, g_iStatGlowNativeReads, g_iStatGlowNativeLockHits,
+        g_iStatRotateSkippedProtected, g_iStatRotateDeferred);
     TR_Reply(client, "累计：生成 %d（失败 %d）| 投石释放 %d | 投石拦截 %d+%d | 拳击 %d/%d | 首石成功 %d 超时 %d",
         g_iStatSpawns, g_iStatSpawnFail, g_iStatReleases, g_iStatThrowGateBlocked,
         g_iStatDelayedBlocked, g_iStatSwings, g_iStatHits, g_iStatFirstRockSuccess,
@@ -180,6 +214,37 @@ void TR_WriteDiagnosticDump(char[] path, int maxlen)
         nativeTanks + replicas, replicas, mixed ? g_cvAutoLimit.IntValue : nativeLimit, g_bHumanLeftStart, g_bFrontPhaseOpen);
     file.WriteLine("configured_tank_limit=%d native_tank_limit=%d reserved_handoff_slots=%d replica_enabled=%d",
         g_cvAutoLimit.IntValue, nativeLimit, TR_ReservedTankSlots(), mixed);
+    int hsHumans, hsAfkBots, hsUnownedBots, hsSeatLimit, hsCountdowns;
+    HS_GetDiagnosticStats(hsHumans, hsAfkBots, hsUnownedBots, hsSeatLimit, hsCountdowns);
+    file.WriteLine("human_seats_active=%d human_seats_yielded=%d humans=%d afk_bots=%d unowned_bots=%d seat_limit=%d afk_timeout=%d afk_countdowns=%d afk_evictions=%d native_afk_managed=%d native_afk_val=%d",
+        HS_IsActive() ? 1 : 0, g_HS_YieldedToOther ? 1 : 0, hsHumans, hsAfkBots, hsUnownedBots, hsSeatLimit,
+        g_HS_AfkTimeout != null ? g_HS_AfkTimeout.IntValue : 0, hsCountdowns, g_HS_StatAfkEvictions,
+        g_HS_ManagedNativeAfk ? 1 : 0, g_HS_NativeAfkTimeout != null ? g_HS_NativeAfkTimeout.IntValue : -1);
+    file.WriteLine("skip_intro_allowed=%d skip_intro_count=%d skip_intro_last_elapsed=%.2f",
+        TR_FlowIsIntroAllowed() ? 1 : 0, g_iStatIntroSkipped, g_fIntroLastElapsed);
+    file.WriteLine("fast_wipe_allowed=%d fast_wipe_delay=%.2f fast_wipe_gamedata=%d fast_wipe_offset=%d fast_wipe_count=%d fast_wipe_fallbacks=%d fast_wipe_last_elapsed=%.2f fast_wipe_last_result=%s",
+        TR_FlowIsFastWipeAllowed() ? 1 : 0, g_cvWipeDelay.FloatValue, g_bWipeGamedataLoaded ? 1 : 0,
+        g_iOffDirectorRestartTimer, g_iStatWipeAccelerated, g_iStatWipeFallbacks, g_fWipeLastElapsed, g_sWipeLastResult);
+    file.WriteLine("no_friendly_fire=%d ff_blocked_direct=%d ff_blocked_delayed=%d ff_barrel_detour=%d",
+        TR_NoFriendlyFireActive() ? 1 : 0, g_iStatFFBlockedDirect, g_iStatFFBlockedDelayed, g_bFFFuelBarrelDetourReady ? 1 : 0);
+    file.WriteLine("no_water_slowdown=%d water_applied=%d water_status=%s",
+        TR_NoWaterSlowdownActive() ? 1 : 0, g_bWaterApplied ? 1 : 0, g_sWaterStatus);
+    file.WriteLine("deaths_door_active=%d deaths_door_cvar=%d deaths_door_last=%s",
+        g_bDeathsDoorActive ? 1 : 0, g_cvDeathsDoor != null ? g_cvDeathsDoor.IntValue : 0, g_sDeathsDoorLastResult);
+    file.WriteLine("bait_punch_enabled=%d bait_native_cause_ready=%d bait_slays_native=%d bait_slays_replica=%d bait_blocked_death=%d bait_excluded_obstacle=%d",
+        TR_BaitPunchEnabled() ? 1 : 0, TR_Bait_IsNativeCauseReady() ? 1 : 0, g_iStatBaitPunchSlaysNative, g_iStatBaitPunchSlaysReplica,
+        g_iStatBaitPunchBlockedDeath, g_iStatBaitPunchExcludedObstacle);
+    int brCandN, brCandR, brSlayN, brSlayR, brHit, brCancel;
+    TR_BaitRockGetStats(brCandN, brCandR, brSlayN, brSlayR, brHit, brCancel);
+    file.WriteLine("bait_rock_enabled=%d bait_rock_cvar=%d bait_rock_native_ready=%d bait_rock_pending=%d bait_rock_cand_native=%d bait_rock_cand_replica=%d bait_rock_slays_native=%d bait_rock_slays_replica=%d bait_rock_blocked_hit=%d bait_rock_cancelled=%d bait_rock_native_status=%s",
+        TR_BaitRockEnabled() ? 1 : 0, (g_cvBaitRockSlay != null && g_cvBaitRockSlay.BoolValue) ? 1 : 0,
+        TR_Glow_IsNativeTargetPathEnabled() ? 1 : 0, TR_BaitRockPendingCount(),
+        brCandN, brCandR, brSlayN, brSlayR, brHit, brCancel, g_sGlowNativeStatus);
+    file.WriteLine("rock_glow_enabled=%d glow_live_proxies=%d glow_peak_proxies=%d glow_active_groups=%d glow_overflow=%d glow_native_path=%d",
+        TR_RockGlowEnabled() ? 1 : 0, g_iGlowLiveProxies, g_iGlowPeakProxies,
+        TR_Glow_CountActiveGroups(), g_iGlowOverflowCount, TR_Glow_IsNativeTargetPathEnabled() ? 1 : 0);
+    file.WriteLine("rotate_skipped_protected=%d rotate_deferred=%d",
+        g_iStatRotateSkippedProtected, g_iStatRotateDeferred);
     if (TR_IsTankRunMode())
         file.WriteLine("spawn_visibility_setting=%d spawn_cover_required=%d", g_cvSpawnVisibility.IntValue, TR_LeadSpawnNeedsCover() ? 1 : 0);
 

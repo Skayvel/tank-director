@@ -42,6 +42,22 @@ public Action Command_TankMenu(int client, int args)
     return Plugin_Handled;
 }
 
+public Action Command_TankMenu2(int client, int args)
+{
+    if (client == 0)
+    {
+        TR_Reply(client, "控制台无法显示二号菜单；请使用 sm_tank_status / sm_tank_set 等命令。");
+        return Plugin_Handled;
+    }
+    if (!TR_CanOpen(client))
+    {
+        TR_Reply(client, "权限不足：需要配置管理员权限，或由服务器开启 tankrun_public_readonly。");
+        return Plugin_Handled;
+    }
+    ShowMenu2(client);
+    return Plugin_Handled;
+}
+
 public Action Command_Status(int client, int args)
 {
     if (!TR_CommandAccess(client, ADMFLAG_GENERIC))
@@ -404,7 +420,7 @@ public Action Command_Reload(int client, int args)
 
 public Action Command_Help(int client, int args)
 {
-    TR_Reply(client, "命令：!tank 菜单 | sm_tank_status | sm_tank_diag | sm_tank_dump | sm_tank_params");
+    TR_Reply(client, "命令：!tank 主菜单 | !tank2 二号菜单 | sm_tank_status | sm_tank_diag | sm_tank_dump | sm_tank_params");
     TR_Reply(client, "写入：sm_tank_set <参数> <值> | sm_tank_restore <参数|all> | sm_tank_spawn [方式] | sm_tank_clear");
     TR_Reply(client, "处死：sm_tank_kill <Tank客户端编号|oldest|newest>");
     TR_Reply(client, "玩家自杀：!zs 或 /zs");
@@ -425,6 +441,7 @@ void TR_RegisterCommands()
     // 普通玩家是否可用由 TR_CanOpen 在回调内检查（只读模式）。
     RegConsoleCmd("sm_tank", Command_TankMenu, "打开 Tank Run 综合控制中心菜单");
     RegConsoleCmd("sm_tankmenu", Command_TankMenu, "打开 Tank Run 综合控制中心菜单（别名）");
+    RegConsoleCmd("sm_tank2", Command_TankMenu2, "打开 Tank Run 二号功能菜单（模式/处死/锁定）");
     RegConsoleCmd("sm_tank_help", Command_Help, "Tank Run 控制帮助");
     RegConsoleCmd("sm_zs", Command_Suicide, "自杀（只作用于命令发起者）");
 

@@ -69,9 +69,284 @@ float g_fReplacementPos[3];
 float g_fReplacementAngles[3];
 float g_fNextFrontPhaseProbe;
 int   g_iPeakLiveAiTanks;
+int   g_iStatRotateSkippedProtected;
+int   g_iStatRotateDeferred;
 
 int g_iTraceIgnoreA = 0;
 int g_iTraceIgnoreB = 0;
+
+// Tank 刷新提示音（c1m4_atrium 逐桶倒油完成原版库存样本，非空间本地播放）
+#define TR_TANK_SPAWN_SOUND         "ui/survival_playerrec.wav"
+#define TR_SPAWN_SOUND_SPACING      0.18
+#define TR_SPAWN_SOUND_SUPPRESS_MAX MAXPLAYERS
+#define TR_SPAWN_SOUND_SUPPRESS_TTL 2.0
+
+bool   g_bSpawnSoundPrecached;
+int    g_iSpawnSoundSessionGen;
+int    g_iSpawnSoundPending[MAXPLAYERS + 1];
+int    g_iSpawnSoundUserId[MAXPLAYERS + 1];
+float  g_fSpawnSoundNextAllowed[MAXPLAYERS + 1];
+Handle g_hSpawnSoundTimer[MAXPLAYERS + 1];
+int    g_iSpawnSoundSuppressUid[TR_SPAWN_SOUND_SUPPRESS_MAX];
+float  g_fSpawnSoundSuppressUntil[TR_SPAWN_SOUND_SUPPRESS_MAX];
+
+// ---------------------------------------------------------------- 刷新提示音
+void TR_PrecacheSpawnSound()
+{
+    g_bSpawnSoundPrecached = PrecacheSound(TR_TANK_SPAWN_SOUND, true);
+}
+
+void TR_ClearSpawnSoundSuppressUid(int userid)
+{
+    if (userid <= 0)
+    {
+        return;
+    }
+    for (int i = 0; i < TR_SPAWN_SOUND_SUPPRESS_MAX; i++)
+    {
+        if (g_iSpawnSoundSuppressUid[i] == userid)
+        {
+            g_iSpawnSoundSuppressUid[i] = 0;
+            g_fSpawnSoundSuppressUntil[i] = 0.0;
+        }
+    }
+}
+
+void TR_SuppressSpawnSoundForUserId(int userid, float ttl = TR_SPAWN_SOUND_SUPPRESS_TTL)
+{
+    if (userid <= 0)
+    {
+        return;
+    }
+    float now = GetGameTime();
+    float until = ttl <= 0.0 ? -1.0 : (now + ttl);
+    int freeSlot = -1;
+    int oldestTempSlot = -1;
+    for (int i = 0; i < TR_SPAWN_SOUND_SUPPRESS_MAX; i++)
+    {
+        if (g_iSpawnSoundSuppressUid[i] != 0 && g_fSpawnSoundSuppressUntil[i] > 0.0
+            && now > g_fSpawnSoundSuppressUntil[i])
+        {
+            g_iSpawnSoundSuppressUid[i] = 0;
+            g_fSpawnSoundSuppressUntil[i] = 0.0;
+        }
+        if (g_iSpawnSoundSuppressUid[i] == userid)
+        {
+            if (until < 0.0 || (g_fSpawnSoundSuppressUntil[i] > 0.0 && until > g_fSpawnSoundSuppressUntil[i]))
+            {
+                g_fSpawnSoundSuppressUntil[i] = until;
+            }
+            return;
+        }
+        if (g_iSpawnSoundSuppressUid[i] == 0)
+        {
+            if (freeSlot == -1)
+            {
+                freeSlot = i;
+            }
+        }
+        else if (g_fSpawnSoundSuppressUntil[i] > 0.0)
+        {
+            if (oldestTempSlot == -1 || g_fSpawnSoundSuppressUntil[i] < g_fSpawnSoundSuppressUntil[oldestTempSlot])
+            {
+                oldestTempSlot = i;
+            }
+        }
+    }
+    int slot = freeSlot != -1 ? freeSlot : (oldestTempSlot != -1 ? oldestTempSlot : 0);
+    g_iSpawnSoundSuppressUid[slot] = userid;
+    g_fSpawnSoundSuppressUntil[slot] = until;
+}
+
+void TR_SuppressTankTakeoverSound(int userid)
+{
+    TR_SuppressSpawnSoundForUserId(userid, TR_SPAWN_SOUND_SUPPRESS_TTL);
+}
+
+void TR_MarkExistingTanksSpawnSoundDone()
+{
+    for (int i = 1; i <= MaxClients; i++)
+    {
+        if (TR_IsTankClient(i))
+        {
+            TR_SuppressSpawnSoundForUserId(GetClientUserId(i), -1.0);
+        }
+    }
+}
+
+bool TR_ConsumeSpawnSoundSuppressed(int userid)
+{
+    if (userid <= 0)
+    {
+        return false;
+    }
+    float now = GetGameTime();
+    bool matched = false;
+    for (int i = 0; i < TR_SPAWN_SOUND_SUPPRESS_MAX; i++)
+    {
+        if (g_iSpawnSoundSuppressUid[i] == 0)
+        {
+            continue;
+        }
+        if (g_fSpawnSoundSuppressUntil[i] > 0.0 && now > g_fSpawnSoundSuppressUntil[i])
+        {
+            g_iSpawnSoundSuppressUid[i] = 0;
+            g_fSpawnSoundSuppressUntil[i] = 0.0;
+            continue;
+        }
+        if (g_iSpawnSoundSuppressUid[i] == userid)
+        {
+            g_iSpawnSoundSuppressUid[i] = 0;
+            g_fSpawnSoundSuppressUntil[i] = 0.0;
+            matched = true;
+        }
+    }
+    return matched;
+}
+
+void TR_ClearSpawnSoundClient(int client)
+{
+    if (client <= 0 || client > MaxClients)
+    {
+        return;
+    }
+    g_iSpawnSoundPending[client] = 0;
+    g_iSpawnSoundUserId[client] = 0;
+    g_fSpawnSoundNextAllowed[client] = 0.0;
+    if (g_hSpawnSoundTimer[client] != null)
+    {
+        KillTimer(g_hSpawnSoundTimer[client]);
+        g_hSpawnSoundTimer[client] = null;
+    }
+}
+
+void TR_ClearAllSpawnSounds(bool clearPersistentSuppress = true)
+{
+    g_iSpawnSoundSessionGen++;
+    for (int i = 0; i < TR_SPAWN_SOUND_SUPPRESS_MAX; i++)
+    {
+        if (clearPersistentSuppress || g_fSpawnSoundSuppressUntil[i] >= 0.0)
+        {
+            g_iSpawnSoundSuppressUid[i] = 0;
+            g_fSpawnSoundSuppressUntil[i] = 0.0;
+        }
+    }
+    for (int i = 1; i <= MAXPLAYERS; i++)
+    {
+        g_iSpawnSoundPending[i] = 0;
+        g_iSpawnSoundUserId[i] = 0;
+        g_fSpawnSoundNextAllowed[i] = 0.0;
+        if (g_hSpawnSoundTimer[i] != null)
+        {
+            KillTimer(g_hSpawnSoundTimer[i]);
+            g_hSpawnSoundTimer[i] = null;
+        }
+    }
+}
+
+void TR_EmitTankSpawnSoundToClient(int client)
+{
+    if (!g_bSpawnSoundPrecached && TR_IsMapRunning())
+    {
+        TR_PrecacheSpawnSound();
+    }
+    EmitSoundToClient(client, TR_TANK_SPAWN_SOUND, SOUND_FROM_PLAYER, SNDCHAN_AUTO,
+        SNDLEVEL_NONE, SND_NOFLAGS, SNDVOL_NORMAL, SNDPITCH_NORMAL);
+}
+
+void TR_QueueTankSpawnSoundForClient(int client, float now)
+{
+    int userid = GetClientUserId(client);
+    if (userid <= 0)
+    {
+        return;
+    }
+    if (g_iSpawnSoundUserId[client] != 0 && g_iSpawnSoundUserId[client] != userid)
+    {
+        TR_ClearSpawnSoundClient(client);
+    }
+    g_iSpawnSoundUserId[client] = userid;
+
+    if (g_iSpawnSoundPending[client] == 0 && g_hSpawnSoundTimer[client] == null
+        && now >= g_fSpawnSoundNextAllowed[client])
+    {
+        TR_EmitTankSpawnSoundToClient(client);
+        g_fSpawnSoundNextAllowed[client] = now + TR_SPAWN_SOUND_SPACING;
+        return;
+    }
+
+    g_iSpawnSoundPending[client]++;
+    if (g_hSpawnSoundTimer[client] == null)
+    {
+        float delay = g_fSpawnSoundNextAllowed[client] - now;
+        if (delay < 0.01)
+        {
+            delay = 0.01;
+        }
+        g_hSpawnSoundTimer[client] = CreateTimer(delay, Timer_FlushSpawnSound, client, TIMER_FLAG_NO_MAPCHANGE);
+    }
+}
+
+void TR_NotifyTankSpawnSound()
+{
+    if (!TR_FeatureEnabled() || g_bMapEnding || g_bRoundEnded)
+    {
+        return;
+    }
+    float now = GetGameTime();
+    for (int client = 1; client <= MaxClients; client++)
+    {
+        if (!IsClientInGame(client) || IsFakeClient(client))
+        {
+            continue;
+        }
+        TR_QueueTankSpawnSoundForClient(client, now);
+    }
+}
+
+public Action Timer_FlushSpawnSound(Handle timer, any data)
+{
+    int client = view_as<int>(data);
+    if (client <= 0 || client > MaxClients)
+    {
+        return Plugin_Stop;
+    }
+    if (g_hSpawnSoundTimer[client] != timer)
+    {
+        return Plugin_Stop;
+    }
+    g_hSpawnSoundTimer[client] = null;
+
+    if (!TR_FeatureEnabled() || g_bMapEnding || g_bRoundEnded)
+    {
+        TR_ClearSpawnSoundClient(client);
+        return Plugin_Stop;
+    }
+
+    int userid = g_iSpawnSoundUserId[client];
+    if (userid <= 0 || GetClientOfUserId(userid) != client
+        || !IsClientInGame(client) || IsFakeClient(client))
+    {
+        TR_ClearSpawnSoundClient(client);
+        return Plugin_Stop;
+    }
+
+    if (g_iSpawnSoundPending[client] <= 0)
+    {
+        return Plugin_Stop;
+    }
+
+    g_iSpawnSoundPending[client]--;
+    TR_EmitTankSpawnSoundToClient(client);
+    g_fSpawnSoundNextAllowed[client] = GetGameTime() + TR_SPAWN_SOUND_SPACING;
+
+    if (g_iSpawnSoundPending[client] > 0)
+    {
+        g_hSpawnSoundTimer[client] = CreateTimer(TR_SPAWN_SOUND_SPACING, Timer_FlushSpawnSound,
+            client, TIMER_FLAG_NO_MAPCHANGE);
+    }
+    return Plugin_Stop;
+}
 
 // ---------------------------------------------------------------- 基础判定
 bool TR_IsSurvivor(int client)
@@ -90,7 +365,29 @@ bool TR_IsTankClient(int client)
     {
         return false;
     }
-    return GetEntProp(client, Prop_Send, "m_zombieClass") == 8;
+    if (GetEntProp(client, Prop_Send, "m_zombieClass") != 8)
+    {
+        return false;
+    }
+    return !HasEntProp(client, Prop_Send, "m_isGhost") || GetEntProp(client, Prop_Send, "m_isGhost") == 0;
+}
+
+bool TR_IsTankClientOrTracked(int client, int userid)
+{
+    if (client <= 0 || client > MaxClients)
+    {
+        return false;
+    }
+    if (userid > 0 && g_bTankTracked[client] && g_iTankUserId[client] == userid)
+    {
+        return true;
+    }
+    if (!IsClientInGame(client) || GetClientTeam(client) != 3)
+    {
+        return false;
+    }
+    return HasEntProp(client, Prop_Send, "m_zombieClass")
+        && GetEntProp(client, Prop_Send, "m_zombieClass") == 8;
 }
 
 bool TR_IsAiTank(int client)
@@ -285,7 +582,10 @@ void TR_ResetTank(int client, const char[] reason)
         return;
     }
     TR_LogEvent("清理 Tank 槽位 客户端#%d（%s）", client, reason);
+    TR_ClearSpawnSoundSuppressUid(g_iTankUserId[client]);
     TR_ResetRockTelemetry(client);
+    TR_Bait_ResetNativeTank(client);
+    TR_Glow_EndNativeThrow(client);
     g_bTankTracked[client] = false;
     g_bTankIsAi[client] = false;
     g_iTankUserId[client] = 0;
@@ -328,11 +628,11 @@ void TR_ResetTank(int client, const char[] reason)
     g_fTankLastContactScan[client] = 0.0;
 }
 
-void TR_TrackTank(int client, const char[] reason, bool fromSpawnEvent = false)
+bool TR_TrackTank(int client, const char[] reason, bool fromSpawnEvent = false)
 {
     if (!TR_IsTankClient(client))
     {
-        return;
+        return false;
     }
     int uid = GetClientUserId(client);
     if (g_bTankTracked[client] && g_iTankUserId[client] == uid)
@@ -340,8 +640,9 @@ void TR_TrackTank(int client, const char[] reason, bool fromSpawnEvent = false)
         if (fromSpawnEvent && g_iTankBirthOrder[client] == 0)
         {
             g_iTankBirthOrder[client] = ++g_iNextTankBirthOrder;
+            return true;
         }
-        return;
+        return false;
     }
     if (g_bTankTracked[client])
     {
@@ -351,7 +652,13 @@ void TR_TrackTank(int client, const char[] reason, bool fromSpawnEvent = false)
     g_bTankTracked[client] = true;
     g_bTankIsAi[client] = IsFakeClient(client);
     g_iTankUserId[client] = uid;
-    if (fromSpawnEvent) g_iTankBirthOrder[client] = ++g_iNextTankBirthOrder;
+    TR_Bait_OnNativeTankTracked(client);
+    bool assignedBirthOrder = false;
+    if (fromSpawnEvent)
+    {
+        g_iTankBirthOrder[client] = ++g_iNextTankBirthOrder;
+        assignedBirthOrder = true;
+    }
     g_fTankSpawnTime[client] = GetGameTime();
     if (HasEntProp(client, Prop_Data, "m_flMaxSpeed"))
     {
@@ -363,6 +670,7 @@ void TR_TrackTank(int client, const char[] reason, bool fromSpawnEvent = false)
     }
     TR_LogEvent("跟踪 Tank 客户端#%d userid=%d AI=%s（%s）", client, uid,
         g_bTankIsAi[client] ? "是" : "否", reason);
+    return assignedBirthOrder;
 }
 
 void TR_ResetAllTanks(const char[] reason)
@@ -876,9 +1184,17 @@ int TR_KillAllTanks(const char[] source)
 public Action TR_OnTakeDamage(int victim, int &attacker, int &inflictor, float &damage,
     int &damagetype, int &weapon, float damageForce[3], float damagePosition[3], int damagecustom)
 {
+    TR_BaitRockOnTakeDamage(victim, inflictor);
     if (!TR_FeatureEnabled() || damage <= 0.0)
     {
         return Plugin_Continue;
+    }
+
+    // v2.3 取消友伤（Tank Run 合作默认开；与 Tank 伤害倍率及拳击防护完整共存）
+    if (TR_FF_ShouldBlockDamage(victim, attacker, inflictor, damagetype, weapon))
+    {
+        damage = 0.0;
+        return Plugin_Handled;
     }
 
     bool changed = false;
@@ -947,6 +1263,13 @@ public Action TR_OnTakeDamage(int victim, int &attacker, int &inflictor, float &
         return Plugin_Changed;
     }
     return Plugin_Continue;
+}
+
+public void TR_OnTakeDamagePost(int victim, int attacker, int inflictor, float damage,
+    int damagetype, int weapon, const float damageForce[3], const float damagePosition[3])
+{
+    #pragma unused attacker, damage, damagetype, weapon, damageForce, damagePosition
+    TR_BaitRockOnTakeDamage(victim, inflictor);
 }
 
 // ---------------------------------------------------------------- 自动生成
@@ -1071,18 +1394,158 @@ int TR_SpawnFrontAt(const float pos[3], const float ang[3], int requester, char[
     return 0;
 }
 
+// 校验原版 AI Tank 候选是否处于可释放客户端槽位的有效存活状态（排除真人、幽灵、已死/正在死亡、已在踢出队列）
+bool TR_CanNativeTankReleaseSlot(int client)
+{
+    if (!TR_IsAiTank(client) || IsClientInKickQueue(client))
+    {
+        return false;
+    }
+    if (GetClientHealth(client) <= 0)
+    {
+        return false;
+    }
+    if (HasEntProp(client, Prop_Send, "m_lifeState") && GetEntProp(client, Prop_Send, "m_lifeState") != 0)
+    {
+        return false;
+    }
+    return true;
+}
+
+// 满员轮换递补候选筛选（不引入倒序反转，也不改变手动管理员操作）：
+// 按原配置的最早出生顺序依次检查可释放本路径所需槽位的候选 Tank；
+// 若候选处于投石/等待该石头结算保护，则沿同顺序递补查找下一候选；全部不合格则延迟本轮。
 bool TR_RetireFrontTank(int &userid, bool nativeOnly = false)
 {
-    int oldest = TR_FindBirthOrderedTank(false);
-    float actorBirth = TC_GetOldestReplicaTime();
     userid = 0;
-    if (!nativeOnly && actorBirth >= 0.0 && (oldest == 0 || actorBirth < g_fTankSpawnTime[oldest]))
+
+    // 1) 校验原版 AI Tank 出生顺序完整性（热重载后未知顺序时保守不淘汰）并确认可释放原版客户端槽位
+    bool candIsReplica[MAXPLAYERS + 32];
+    int candId[MAXPLAYERS + 32];
+    int candBirth[MAXPLAYERS + 32];
+    float candTime[MAXPLAYERS + 32];
+    int candCount = 0;
+
+    for (int i = 1; i <= MaxClients; i++)
     {
-        return TC_RetireOldestReplica();
+        if (!TR_IsAiTank(i))
+        {
+            continue;
+        }
+        if (g_iTankBirthOrder[i] == 0 || g_iTankUserId[i] != GetClientUserId(i))
+        {
+            return false;
+        }
+        if (!TR_CanNativeTankReleaseSlot(i))
+        {
+            continue;
+        }
+        candIsReplica[candCount] = false;
+        candId[candCount] = i;
+        candBirth[candCount] = g_iTankBirthOrder[i];
+        candTime[candCount] = g_fTankSpawnTime[i];
+        candCount++;
     }
-    if (oldest == 0) return false;
-    userid = GetClientUserId(oldest);
-    return TR_KillTank(oldest, "统一生成腾位", true);
+
+    // 2) 若本路径允许淘汰补位 Tank（即并非专程腾原版客户端槽位），纳入存活补位候选
+    if (!nativeOnly && TC_ManagedMode())
+    {
+        int repSlots[32];
+        int repBirths[32];
+        float repTimes[32];
+        int repCount = TC_CollectLiveReplicas(repSlots, repBirths, repTimes, sizeof(repSlots));
+        for (int r = 0; r < repCount && candCount < sizeof(candId); r++)
+        {
+            candIsReplica[candCount] = true;
+            candId[candCount] = repSlots[r];
+            candBirth[candCount] = repBirths[r];
+            candTime[candCount] = repTimes[r];
+            candCount++;
+        }
+    }
+
+    if (candCount == 0)
+    {
+        return false;
+    }
+
+    // 3) 按原配置的“最早出生优先”升序排序（绝不倒序反转）
+    for (int a = 0; a < candCount - 1; a++)
+    {
+        for (int b = a + 1; b < candCount; b++)
+        {
+            bool swap = false;
+            if (candTime[b] < candTime[a] - 0.0001)
+            {
+                swap = true;
+            }
+            else if (FloatAbs(candTime[b] - candTime[a]) <= 0.0001
+                && candIsReplica[a] == candIsReplica[b] && candBirth[b] < candBirth[a])
+            {
+                swap = true;
+            }
+            if (swap)
+            {
+                bool tRep = candIsReplica[a]; candIsReplica[a] = candIsReplica[b]; candIsReplica[b] = tRep;
+                int tId = candId[a]; candId[a] = candId[b]; candId[b] = tId;
+                int tBirth = candBirth[a]; candBirth[a] = candBirth[b]; candBirth[b] = tBirth;
+                float tTime = candTime[a]; candTime[a] = candTime[b]; candTime[b] = tTime;
+            }
+        }
+    }
+
+    // 4) 沿既有顺序逐只筛选，跳过处于投石/等待石头结算保护的候选
+    int skipped = 0;
+    char reason[64];
+    for (int i = 0; i < candCount; i++)
+    {
+        if (candIsReplica[i])
+        {
+            int slot = candId[i];
+            if (TC_IsReplicaRockProtected(slot, reason, sizeof(reason)))
+            {
+                skipped++;
+                g_iStatRotateSkippedProtected++;
+                TR_LogEvent("满员轮换递补跳过（容量路径）：slot=%d 原因=%s", slot, reason);
+                continue;
+            }
+            if (TC_RetireReplicaSlot(slot))
+            {
+                if (skipped > 0)
+                {
+                    TR_Log("满员轮换递补选中（容量路径）：跳过 %d 只保护候选后淘汰补位 slot=%d", skipped, slot);
+                }
+                return true;
+            }
+        }
+        else
+        {
+            int tank = candId[i];
+            if (TR_IsNativeTankRockProtected(tank, reason, sizeof(reason)))
+            {
+                skipped++;
+                g_iStatRotateSkippedProtected++;
+                TR_LogEvent("满员轮换递补跳过（原版路径）：Tank#%d userid=%d 原因=%s", tank, GetClientUserId(tank), reason);
+                continue;
+            }
+            userid = GetClientUserId(tank);
+            if (TR_KillTank(tank, "统一生成腾位", true))
+            {
+                if (skipped > 0)
+                {
+                    TR_Log("满员轮换递补选中（原版路径）：跳过 %d 只保护候选后淘汰 Tank#%d userid=%d", skipped, tank, userid);
+                }
+                return true;
+            }
+            userid = 0;
+        }
+    }
+
+    // 全部候选均不合格（处于投石保护或无法释放目标槽位）：延迟本轮
+    g_iStatRotateDeferred++;
+    TR_Log("满员轮换延迟本轮：全部 %d 只候选均处于投石/结算保护或不可淘汰（跳过=%d nativeOnly=%d）",
+        candCount, skipped, nativeOnly ? 1 : 0);
+    return false;
 }
 
 void TR_EnsureAutoTimer()
@@ -1206,7 +1669,9 @@ void TR_AutoSpawnThink()
 
 public void OnGameFrame()
 {
+    TR_BaitRockFrame();
     TC_RunGameFrame();
+    TR_Glow_SyncAllNativeTanks();
     if (!g_bAutoRunning || !g_bFrontPhaseOpen || g_bRoundEnded) return;
     if (g_bFrontReplacement) TR_ProcessTankReplacement();
     else if (GetGameTime() >= g_fAutoSpawnNext) TR_AutoSpawnThink();

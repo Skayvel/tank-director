@@ -15,9 +15,9 @@
 #include <sdkhooks>
 #include <left4dhooks>
 
-#define TR_VERSION      "2.2.11"
+#define TR_VERSION      "2.3.0-test"
 #define TR_TAG          "[TankRun]"
-#define TR_PARAM_MAX    84
+#define TR_PARAM_MAX    112
 
 #define TR_CLAW_ALL        7
 #define TR_ROCK_ALL        15
@@ -152,6 +152,17 @@ ConVar g_cvTankMaxHealth;
 ConVar g_cvModeHealth;
 ConVar g_cvSpeedScale;
 
+ConVar g_cvSkipIntro;
+ConVar g_cvFastWipe;
+ConVar g_cvWipeDelay;
+
+ConVar g_cvRockTargetGlow;
+ConVar g_cvNoFriendlyFire;
+ConVar g_cvNoWaterSlowdown;
+ConVar g_cvDeathsDoor;
+ConVar g_cvBaitPunchSlay;
+ConVar g_cvBaitRockSlay;
+
 ConVar g_cvBridge;
 
 // ---------------------------------------------------------------- 参数表
@@ -197,6 +208,7 @@ bool g_bSdkHooks = false;
 // 任何需要 CreateEntityByName / DispatchSpawn / 生成 Tank 的路径都必须先通过
 // TR_IsMapRunning()，否则引擎会报 "Cannot create new entity when no map is running"。
 bool g_bMapEnding = false;
+bool g_bV23MapStarted = false;
 
 // Tank Run 脚本快照（逻辑脚本 SessionState / SessionOptions）
 bool  g_bVValid = false;
@@ -689,7 +701,12 @@ bool TR_ClampValue(int idx, float &value)
         || StrEqual(g_sParamName[idx], "tankrun_target_fixed")
         || StrEqual(g_sParamName[idx], "tankrun_spawn_attempts")
         || StrEqual(g_sParamName[idx], "tank_throw_max_loft_angle")
-        || StrEqual(g_sParamName[idx], "tank_rock_overhead_percent");
+        || StrEqual(g_sParamName[idx], "tank_rock_overhead_percent")
+        || StrEqual(g_sParamName[idx], "tankrun_human_seats")
+        || StrEqual(g_sParamName[idx], "tankrun_afk_timeout")
+        || StrEqual(g_sParamName[idx], "tankrun_skip_intro")
+        || StrEqual(g_sParamName[idx], "tankrun_fast_wipe")
+        || StrEqual(g_sParamName[idx], "tankrun_wipe_delay");
     float min = fixedRange ? g_fParamMin[idx] : 0.0;
     float max = fixedRange ? g_fParamMax[idx] : TR_NUMERIC_MAX;
     if (g_bParamInt[idx] && !fixedRange)
@@ -1490,6 +1507,17 @@ void TR_CreateConVars()
     g_cvModeHealth      = CreateConVar("tankrun_mode_health_sync", "1", "把 Tank 血量同步到 Tank Run 脚本 TankHealth", FCVAR_NOTIFY);
     g_cvSpeedScale      = CreateConVar("tankrun_speed_scale", "1.0", "Tank 移动速度倍率（1=不干预）", FCVAR_NOTIFY);
 
+    g_cvSkipIntro       = CreateConVar("tankrun_skip_intro", "1", "跳过战役关卡开场过场动画：0=关闭 1=仅 Tank Run 合作 2=所有合作", FCVAR_NOTIFY, true, 0.0, true, 2.0);
+    g_cvFastWipe        = CreateConVar("tankrun_fast_wipe", "1", "缩短合作团灭结束演出与重开等待：0=关闭 1=仅 Tank Run 合作 2=所有合作", FCVAR_NOTIFY, true, 0.0, true, 2.0);
+    g_cvWipeDelay       = CreateConVar("tankrun_wipe_delay", "1.5", "合作团灭后缩短到的结束演出与重开等待时长（秒，原版 7.0）", FCVAR_NOTIFY, true, 0.5, true, 7.0);
+
+    g_cvRockTargetGlow  = CreateConVar("tankrun_rock_target_glow", "0", "投石仇恨提示（仅 Tank Run 合作，正式默认 0；内测可设为 1）", FCVAR_NOTIFY, true, 0.0, true, 1.0);
+    g_cvNoFriendlyFire  = CreateConVar("tankrun_no_friendly_fire", "1", "取消生还者友伤（仅 Tank Run 合作，保留自伤/感染者/真实环境伤害）", FCVAR_NOTIFY, true, 0.0, true, 1.0);
+    g_cvNoWaterSlowdown = CreateConVar("tankrun_no_water_slowdown", "1", "取消生还者水中减速（仅 Tank Run 合作，使用原版 WaterSlowsMovement 机制）", FCVAR_NOTIFY, true, 0.0, true, 1.0);
+    g_cvDeathsDoor      = CreateConVar("tankrun_deaths_door", "0", "死门模式（仅改倒地即死，不切模式/不重启/不追杀已倒地玩家）", FCVAR_NOTIFY, true, 0.0, true, 1.0);
+    g_cvBaitRockSlay    = CreateConVar("tankrun_bait_rock_slay", "0", "骗饼处死：近距离离手的原石结算后按原锁定真人判定", FCVAR_NOTIFY, true, 0.0, true, 1.0);
+    g_cvBaitPunchSlay   = CreateConVar("tankrun_bait_punch_slay", "0", "骗拳处死（原版 AI Tank 与补位 Tank，仅在无生还者含 Bot 死亡时生效）", FCVAR_NOTIFY, true, 0.0, true, 1.0);
+
     g_cvBridge          = CreateConVar(TR_BRIDGE, "", "内部 VScript 读回通道；请勿手工修改", FCVAR_DONTRECORD);
 }
 
@@ -1711,6 +1739,40 @@ void TR_RegisterParams()
     TR_Quick(p, 0.0, 1.0);
 
     // ---------------- M01/M11 规则 ----------------
+    p = TR_AddParam(SEC_RULES, TRK_PLUGIN, "tankrun_human_seats", "Tank Run 真人幸存者席位（清闲置 Bot/按需补位）",
+        0.0, 1.0, 1.0, true, true, TRV_NONE, "仅 Tank Run 合作生效：清理无主幸存者 Bot（含最后一人 AFK 清位归零），保留在线 AFK 替身至倒计时结束，入队按需补 Bot");
+    TR_Quick(p, 0.0, 1.0);
+    p = TR_AddParam(SEC_RULES, TRK_PLUGIN, "tankrun_afk_timeout", "挂机触发私有 10 秒倒计时时长（秒，0=关）",
+        0.0, 3600.0, 10.0, true, true, TRV_NONE, "挂机满该秒数后向本人显示 10 秒倒计时，归零转旁观并解绑踢出对应 Bot；托管 director_afk_timeout 防抢跑");
+    TR_Quick(p, 0.0, 60.0, 120.0, 180.0);
+    p = TR_AddParam(SEC_RULES, TRK_PLUGIN, "tankrun_skip_intro", "跳过战役关卡开场过场动画",
+        0.0, 2.0, 1.0, true, true, TRV_NONE, "0=关闭 1=仅 Tank Run 合作（默认） 2=所有合作；保留开门/传送/实体 I/O，不碰终局与转场");
+    TR_Quick(p, 0.0, 1.0, 2.0);
+    p = TR_AddParam(SEC_RULES, TRK_PLUGIN, "tankrun_fast_wipe", "合作团灭快进（缩短失败黑屏与重开等待）",
+        0.0, 2.0, 1.0, true, true, TRV_NONE, "0=关闭 1=仅 Tank Run 合作（默认） 2=所有合作；仅在权威 mission_lost 后缩短 7.0s 等待");
+    TR_Quick(p, 0.0, 1.0, 2.0);
+    p = TR_AddParam(SEC_RULES, TRK_PLUGIN, "tankrun_wipe_delay", "合作团灭重开等待时长（秒）",
+        0.5, 7.0, 0.25, false, true, TRV_NONE, "合作全灭后同步缩短 m_RestartTimer 与客户端黑屏淡出（原版 7.0s，默认 1.5s）");
+    TR_Quick(p, 1.0, 1.5, 2.5, 7.0);
+    p = TR_AddParam(SEC_RULES, TRK_PLUGIN, "tankrun_no_friendly_fire", "取消生还者友伤（Tank Run 合作）",
+        0.0, 1.0, 1.0, true, true, TRV_NONE, "拦截同队生还者直接与可追溯延迟燃烧/爆炸伤害，保留自伤、感染者与真实环境伤害");
+    TR_Quick(p, 0.0, 1.0);
+    p = TR_AddParam(SEC_RULES, TRK_PLUGIN, "tankrun_no_water_slowdown", "取消水中减速（Tank Run 合作）",
+        0.0, 1.0, 1.0, true, true, TRV_NONE, "使用原版 WaterSlowsMovement=0 消除生还者水中减速，退出或停用时自动恢复原值");
+    TR_Quick(p, 0.0, 1.0);
+    p = TR_AddParam(SEC_RULES, TRK_PLUGIN, "tankrun_rock_target_glow", "投石仇恨提示（Tank Run 合作）",
+        0.0, 1.0, 1.0, true, true, TRV_NONE, "正式默认 0；跟模代理非透视配对色提示（原版真实目标待 ULTRA 实证，容量路径已接入）");
+    TR_Quick(p, 0.0, 1.0);
+    p = TR_AddParam(SEC_RULES, TRK_PLUGIN, "tankrun_deaths_door", "死门模式（倒地即死）",
+        0.0, 1.0, 1.0, true, true, TRV_NONE, "也可由 !tank2 -> 模式选择 切换；仅改倒地次数为 0 并双端校验，失败自动回滚");
+    TR_Quick(p, 0.0, 1.0);
+    p = TR_AddParam(SEC_RULES, TRK_PLUGIN, "tankrun_bait_rock_slay", "骗饼处死（原版/补位 Tank）",
+        0.0, 1.0, 1.0, true, true, TRV_NONE, "离手时原锁定真人距碰撞盒边缘不超过64单位，原石正常终结并确认未命中该目标时处死");
+    TR_Quick(p, 0.0, 1.0);
+    p = TR_AddParam(SEC_RULES, TRK_PLUGIN, "tankrun_bait_punch_slay", "骗拳处死（原版/补位 Tank）",
+        0.0, 1.0, 1.0, true, true, TRV_NONE, "也可由 !tank2 -> 处死选择 切换；0~2身位边缘距+朝真人拳击结算且无生还者死亡时处死");
+    TR_Quick(p, 0.0, 1.0);
+
     p = TR_AddParam(SEC_RULES, TRK_ENGINE, "z_spawn_range", "Z 生成范围（单位）",
         200.0, 10000.0, 100.0, false, true, TRV_NONE, "原生注册参数；不是 VScript 自动生成的最大距离");
     TR_Quick(p, 500.0, 1500.0, 3000.0, 6000.0);

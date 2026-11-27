@@ -16,12 +16,20 @@
 #define REQUIRE_EXTENSIONS
 #include "tankrun/tr_attacks.inc"
 #include "tankrun/tr_rock.inc"
+#include "tankrun/tr_flow.inc"
+#include "tankrun/tr_v23_rules.inc"
+#include "tankrun/tr_bait_punch.inc"
+#include "tankrun/tr_rock_glow.inc"
+#define TR_EMBEDDED_HUMAN_SEATS
+#include "tankrun_human_seats.sp"
+#undef TR_EMBEDDED_HUMAN_SEATS
 #include "tankrun/tr_status.inc"
 #include "tankrun/tr_menu.inc"
 #include "tankrun/tr_diag.inc"
 #define TR_EMBEDDED_CAPACITY
 #include "tankrun_capacity.sp"
 #undef TR_EMBEDDED_CAPACITY
+#include "tankrun/tr_bait_rock.inc"
 
 public Plugin myinfo =
 {
@@ -34,6 +42,45 @@ public Plugin myinfo =
 
 Handle g_hScanTimer = null;
 Handle g_hProbeTimer = null;
+bool g_bLateLoad = false;
+
+public APLRes AskPluginLoad2(Handle myself, bool late, char[] error, int maxlen)
+{
+    if (GetEngineVersion() != Engine_Left4Dead2)
+    {
+        strcopy(error, maxlen, "Tank Run 综合控制中心仅支持 Left 4 Dead 2");
+        return APLRes_SilentFailure;
+    }
+    g_bLateLoad = late;
+    RegPluginLibrary("tankrun_human_seats_embedded");
+    MarkNativeAsOptional("L4D2_IsGenericCooperativeMode");
+    MarkNativeAsOptional("L4D_IsFirstMapInScenario");
+    MarkNativeAsOptional("L4D_IsMissionFinalMap");
+    MarkNativeAsOptional("L4D_IsFinaleEscapeInProgress");
+    MarkNativeAsOptional("L4D_IsInIntro");
+    MarkNativeAsOptional("L4D_GetPointer");
+    MarkNativeAsOptional("L4D_GetServerOS");
+    MarkNativeAsOptional("L4D2_GetScriptValueInt");
+    return APLRes_Success;
+}
+
+public void OnAllPluginsLoaded()
+{
+    HS_CheckPluginConflict();
+    TR_V23Rules_OnAllPluginsLoaded();
+    TR_Bait_OnAllPluginsLoaded();
+    TR_Glow_OnAllPluginsLoaded();
+}
+
+public void OnLibraryAdded(const char[] name)
+{
+    HS_CheckPluginConflict();
+}
+
+public void OnLibraryRemoved(const char[] name)
+{
+    HS_CheckPluginConflict();
+}
 
 // ---------------------------------------------------------------- 生命周期
 public void OnPluginStart()
@@ -50,6 +97,12 @@ public void OnPluginStart()
     strcopy(g_sPresetDir, sizeof(g_sPresetDir), "configs");
 
     TR_CreateConVars();
+    HS_OnPluginStart();
+    TR_FlowOnPluginStart();
+    TR_V23Rules_OnPluginStart();
+    TR_Bait_OnPluginStart();
+    TR_Glow_OnPluginStart();
+    TR_BaitRockStart();
     TR_RegisterParams();
     TR_BindConVars();
     TR_InitSession();
@@ -58,16 +111,27 @@ public void OnPluginStart()
     TR_HookEvents();
     TR_InstallFirstRockClawGate();
     TC_OnPluginStart();
+    if (g_bLateLoad && TR_IsMapRunning())
+    {
+        HS_StartMap();
+    }
 
+    if (TR_IsMapRunning())
+    {
+        TR_PrecacheSpawnSound();
+    }
     for (int i = 1; i <= MaxClients; i++)
     {
         if (IsClientInGame(i))
         {
             SDKHook(i, SDKHook_OnTakeDamage, TR_OnTakeDamage);
+            SDKHook(i, SDKHook_OnTakeDamagePost, TR_OnTakeDamagePost);
             SDKHook(i, SDKHook_PostThinkPost, TR_PostThinkRockView);
             TR_ClearRockMotion(i);
+            TR_ClearSpawnSoundClient(i);
         }
     }
+    TR_MarkExistingTanksSpawnSoundDone();
 
     TR_CheckMissingConVars();
     TR_Log("插件已加载 v%s：注册参数 %d 项，日志 %s", TR_VERSION, g_iParamCount, g_sLogPath);
@@ -132,6 +196,9 @@ void TR_HookEvents()
     HookEvent("map_transition", Event_RoundEnd, EventHookMode_Post);
     HookEvent("finale_vehicle_leaving", Event_RoundEnd, EventHookMode_Post);
     HookEvent("player_hurt", Event_PlayerHurt, EventHookMode_Post);
+    HookEventEx("player_team", Event_PlayerTeam, EventHookMode_Post);
+    HookEventEx("player_bot_replace", Event_PlayerBotReplace, EventHookMode_Post);
+    HookEventEx("bot_player_replace", Event_BotPlayerReplace, EventHookMode_Post);
 }
 
 void TR_CheckMissingConVars()
@@ -168,8 +235,14 @@ public void OnPluginEnd()
     TR_StopTimers();
     TR_RestoreScriptThink();
     TR_ClearLeadSpawnNavCache();
+    TR_V23Rules_OnPluginEnd();
+    TR_BaitRockReset();
+    TR_Bait_OnPluginEnd();
+    TR_Glow_OnPluginEnd();
+    TR_FlowOnPluginEnd();
+    HS_OnPluginEnd();
     TC_OnPluginEnd();
-    TR_Log("插件已卸载（自动生成定时器与脚本接管已恢复）");
+    TR_Log("插件已卸载（自动生成定时器、脚本接管、v2.3 规则与代理、席位与流程模块已恢复）");
 }
 
 public void OnMapStart()
@@ -185,6 +258,14 @@ public void OnMapStart()
     TR_ResetAllTanks("地图开始");
     TR_ResetRockStats();
     TR_StopTimers();
+    TR_PrecacheSpawnSound();
+    TR_MarkExistingTanksSpawnSoundDone();
+    TR_V23Rules_OnMapStart();
+    TR_BaitRockReset();
+    TR_Bait_ResetAll();
+    TR_Glow_ClearAll();
+    TR_FlowOnMapStart();
+    HS_OnMapStart();
     TC_OnMapStart();
     TR_ProbeLibraries();
     TR_EnsureScanTimer();
@@ -198,8 +279,15 @@ public void OnMapEnd()
 {
     g_bMapEnding = true;
     g_bSessionReady = false;
+    g_bSpawnSoundPrecached = false;
     TR_StopTimers();
     TR_ClearLeadSpawnNavCache();
+    TR_V23Rules_OnMapEnd();
+    TR_BaitRockReset();
+    TR_Bait_ResetAll();
+    TR_Glow_ClearAll();
+    TR_FlowOnMapEnd();
+    HS_OnMapEnd();
     TC_OnMapEnd();
     TR_ResetAllTanks("地图结束");
     TR_LogEvent("地图结束");
@@ -212,6 +300,7 @@ public void OnConfigsExecuted()
     GetCurrentMap(g_sMap, sizeof(g_sMap));
     TR_ProbeLibraries();
     TR_ApplySessionConVars();
+    HS_OnConfigsExecuted();
     if (TR_FeatureEnabled() && g_cvDefaultExpert.BoolValue && TR_IsTankRunMode())
     {
         ConVar difficulty = FindConVar("z_difficulty");
@@ -224,6 +313,7 @@ public void OnConfigsExecuted()
         }
     }
     g_bSessionReady = true;
+    TR_V23Rules_OnRuntimeReady("配置执行");
     TR_EnsureScanTimer();
     TR_EnsureAutoTimer();
     TR_ScheduleRuntimeProbe("配置执行");
@@ -241,12 +331,17 @@ void TR_StopTimers()
         KillTimer(g_hScanTimer);
         g_hScanTimer = null;
     }
+    TR_ClearAllSpawnSounds();
     g_bAutoRunning = false;
     g_bFrontReplacement = false;
 }
 
 public void TR_OnPluginConfigChanged(ConVar convar, const char[] oldValue, const char[] newValue)
 {
+    if (convar == g_cvEnabled && !convar.BoolValue)
+    {
+        TR_ClearAllSpawnSounds(false);
+    }
     if ((convar == g_cvEnabled || convar == g_cvRockEnabled) && !convar.BoolValue)
     {
         for (int i = 1; i <= MaxClients; i++) TR_ClearRockMotion(i);
@@ -285,17 +380,30 @@ public void TR_OnPluginConfigChanged(ConVar convar, const char[] oldValue, const
 public void OnClientPutInServer(int client)
 {
     SDKHook(client, SDKHook_OnTakeDamage, TR_OnTakeDamage);
+    SDKHook(client, SDKHook_OnTakeDamagePost, TR_OnTakeDamagePost);
     SDKHook(client, SDKHook_PostThinkPost, TR_PostThinkRockView);
     TR_ClearRockMotion(client);
+    TR_ClearSpawnSoundClient(client);
     if (!IsFakeClient(client))
     {
         TR_LogEvent("玩家进入服务器 #%d", client);
     }
 }
 
+public void OnClientPostAdminCheck(int client)
+{
+    HS_OnClientPostAdminCheck(client);
+}
+
 public void OnClientDisconnect(int client)
 {
+    HS_OnClientDisconnect(client);
+    TR_ClearSpawnSoundSuppressUid(GetClientUserId(client));
+    TR_Glow_OnClientGoneOrDead(client);
+    TR_BaitRockNewLife(client);
+    TR_Bait_ResetNativeTank(client);
     TR_ResetTank(client, "玩家断开连接");
+    TR_ClearSpawnSoundClient(client);
     g_iPendKind[client] = TR_PEND_NONE;
     g_iMenuView[client] = 0;
 }
@@ -337,6 +445,7 @@ public Action Timer_RuntimeProbe(Handle timer)
     g_bSessionReady = true;
     TR_EnsureScanTimer();
     if (TR_ProbeRuntime()) TR_ApplySessionScript();
+    TR_V23Rules_OnRuntimeReady("运行态探测");
     TR_EnsureAutoTimer();
     // Keep the health of ongoing fights during round transitions and hot reloads.
     bool playerOnline = false;
@@ -365,29 +474,128 @@ public Action Timer_ApplyHealthLate(Handle timer, any userid)
 }
 
 // ---------------------------------------------------------------- 事件
-public void Event_TankSpawn(Event event, const char[] name, bool dontBroadcast)
+void TR_HandleTankSpawnEvent(int client, const char[] reason)
 {
-    int client = GetClientOfUserId(event.GetInt("userid"));
-    if (client <= 0 || !TR_IsTankClient(client))
+    if (!TR_IsTankClient(client))
     {
         return;
     }
+    int userid = GetClientUserId(client);
     if (!IsFakeClient(client) && g_cvAiOnly.BoolValue)
     {
+        TR_ConsumeSpawnSoundSuppressed(userid);
         TR_LogEvent("玩家控制的 Tank 生成 #%d：按配置不介入", client);
         return;
     }
-    TR_TrackTank(client, "tank_spawn 事件", true);
+    bool isNewBirth = TR_TrackTank(client, reason, true);
+    bool suppressed = isNewBirth && TR_ConsumeSpawnSoundSuppressed(userid);
+    if (isNewBirth && !suppressed && TR_FeatureEnabled())
+    {
+        TR_NotifyTankSpawnSound();
+    }
     if (TR_IsAiTank(client))
     {
         int liveAi = TR_CountTanks(true);
         if (liveAi > g_iPeakLiveAiTanks) g_iPeakLiveAiTanks = liveAi;
-        TR_LogEvent("Tank 出生：userid=%d 当前存活 AI Tank=%d", GetClientUserId(client), liveAi);
-        CreateTimer(0.2, Timer_ApplyHealthLate, GetClientUserId(client), TIMER_FLAG_NO_MAPCHANGE);
+        TR_LogEvent("Tank 出生：userid=%d 当前存活 AI Tank=%d", userid, liveAi);
+        CreateTimer(0.2, Timer_ApplyHealthLate, userid, TIMER_FLAG_NO_MAPCHANGE);
     }
 }
 
-public void Event_PlayerDeath(Event event, const char[] name, bool dontBroadcast)
+public void Event_PlayerTeam(Event event, const char[] name, bool dontBroadcast)
+{
+    #pragma unused name, dontBroadcast
+    int client = GetClientOfUserId(event.GetInt("userid"));
+    int oldTeam = event.GetInt("oldteam");
+    int newTeam = event.GetInt("team");
+    if (client > 0 && client <= MaxClients && oldTeam != newTeam)
+    {
+        if (oldTeam == 2 || oldTeam == 3)
+        {
+            TR_Glow_OnClientGoneOrDead(client);
+        }
+        if (oldTeam == 3 && newTeam != 3)
+        {
+            TR_Bait_ResetNativeTank(client);
+        }
+    }
+}
+
+public void Event_PlayerBotReplace(Event event, const char[] name, bool dontBroadcast)
+{
+    int playerUid = event.GetInt("player");
+    int botUid = event.GetInt("bot");
+    int player = GetClientOfUserId(playerUid);
+    int bot = GetClientOfUserId(botUid);
+    TR_BaitRockNewLife(player);
+    TR_BaitRockNewLife(bot);
+    if (TR_IsTankClientOrTracked(player, playerUid) || TR_IsTankClientOrTracked(bot, botUid))
+    {
+        TR_SuppressTankTakeoverSound(botUid);
+        if (player > 0) TR_Glow_EndNativeThrow(player);
+        if (bot > 0) TR_Glow_EndNativeThrow(bot);
+    }
+    else if (player > 0 && player <= MaxClients)
+    {
+        TR_Glow_OnClientGoneOrDead(player);
+    }
+}
+
+public void Event_BotPlayerReplace(Event event, const char[] name, bool dontBroadcast)
+{
+    int botUid = event.GetInt("bot");
+    int playerUid = event.GetInt("player");
+    int bot = GetClientOfUserId(botUid);
+    int player = GetClientOfUserId(playerUid);
+    TR_BaitRockNewLife(player);
+    TR_BaitRockNewLife(bot);
+    if (TR_IsTankClientOrTracked(bot, botUid) || TR_IsTankClientOrTracked(player, playerUid))
+    {
+        TR_SuppressTankTakeoverSound(playerUid);
+        if (bot > 0) TR_Glow_EndNativeThrow(bot);
+        if (player > 0) TR_Glow_EndNativeThrow(player);
+    }
+    else if (bot > 0 && bot <= MaxClients)
+    {
+        TR_Glow_OnClientGoneOrDead(bot);
+    }
+}
+
+public void L4D_OnReplaceTank(int tank, int newtank)
+{
+    TR_BaitRockNewLife(tank);
+    TR_BaitRockNewLife(newtank);
+    if (tank > 0 && tank <= MaxClients)
+    {
+        TR_Glow_EndNativeThrow(tank);
+    }
+    if (newtank > 0 && newtank <= MaxClients && IsClientInGame(newtank))
+    {
+        TR_SuppressTankTakeoverSound(GetClientUserId(newtank));
+        TR_Glow_EndNativeThrow(newtank);
+    }
+}
+
+public void TR_FrameVerifyTankSpawn(DataPack pack)
+{
+    pack.Reset();
+    int userid = pack.ReadCell();
+    int sessionGen = pack.ReadCell();
+    delete pack;
+
+    if (sessionGen != g_iSpawnSoundSessionGen || g_bMapEnding || g_bRoundEnded)
+    {
+        return;
+    }
+    int client = GetClientOfUserId(userid);
+    if (client <= 0 || !TR_IsTankClient(client))
+    {
+        return;
+    }
+    TR_HandleTankSpawnEvent(client, "tank_spawn 延迟复核");
+}
+
+public void Event_TankSpawn(Event event, const char[] name, bool dontBroadcast)
 {
     int userid = event.GetInt("userid");
     int client = GetClientOfUserId(userid);
@@ -395,6 +603,35 @@ public void Event_PlayerDeath(Event event, const char[] name, bool dontBroadcast
     {
         return;
     }
+    if (!TR_IsTankClient(client))
+    {
+        DataPack pack = new DataPack();
+        pack.WriteCell(userid);
+        pack.WriteCell(g_iSpawnSoundSessionGen);
+        RequestFrame(TR_FrameVerifyTankSpawn, pack);
+        return;
+    }
+    TR_HandleTankSpawnEvent(client, "tank_spawn 事件");
+}
+
+public void Event_PlayerDeath(Event event, const char[] name, bool dontBroadcast)
+{
+    int userid = event.GetInt("userid");
+    TR_ClearSpawnSoundSuppressUid(userid);
+    int client = GetClientOfUserId(userid);
+    if (client <= 0 || !IsClientInGame(client))
+    {
+        return;
+    }
+    int attacker = GetClientOfUserId(event.GetInt("attacker"));
+    char weapon[64];
+    event.GetString("weapon", weapon, sizeof(weapon));
+    if (GetClientTeam(client) == 2)
+    {
+        TR_Bait_OnSurvivorDeath(client, attacker, weapon);
+    }
+    TR_Glow_OnClientGoneOrDead(client);
+    TR_BaitRockNewLife(client);
     if (GetClientTeam(client) != 3)
     {
         return;
@@ -416,9 +653,15 @@ public void Event_RoundStart(Event event, const char[] name, bool dontBroadcast)
 {
     g_bRoundEnded = false;
     g_iPeakLiveAiTanks = 0;
+    TR_ClearAllSpawnSounds();
     TR_ResetFrontCycle();
+    TR_BaitRockReset();
+    TR_Bait_ResetAll();
+    TR_Glow_ClearAll();
+    TR_FlowOnRoundStart();
     TR_LogEvent("回合开始");
     g_bVProbed = false;
+    TR_V23Rules_OnRuntimeReady("回合开始");
     TR_ScheduleRuntimeProbe("回合开始");
 }
 
@@ -426,6 +669,11 @@ public void Event_RoundEnd(Event event, const char[] name, bool dontBroadcast)
 {
     g_bRoundEnded = true;
     g_bFrontReplacement = false;
+    TR_ClearAllSpawnSounds();
+    TR_BaitRockReset();
+    TR_Bait_ResetAll();
+    TR_Glow_ClearAll();
+    TR_FlowOnRoundEnd();
     TR_LogEvent("回合结束：清理首石窗口与待判定投石状态");
     for (int i = 1; i <= MaxClients; i++)
     {
@@ -465,6 +713,7 @@ public Action OnClientSayCommand(int client, const char[] command, const char[] 
     {
         return Plugin_Continue;
     }
+    HS_OnClientActivity(client, true);
     if (sArgs[0] == '!' || sArgs[0] == '/')
     {
         return Plugin_Continue;
@@ -474,4 +723,19 @@ public Action OnClientSayCommand(int client, const char[] command, const char[] 
         return Plugin_Handled;
     }
     return Plugin_Continue;
+}
+
+// ---------------------------------------------------------------- 实体生命周期转发（友伤/仇恨代理/石头结算）
+public void OnEntityCreated(int entity, const char[] classname)
+{
+    TR_FF_OnEntityCreated(entity, classname);
+}
+
+public void OnEntityDestroyed(int entity)
+{
+    TR_FF_OnEntityDestroyed(entity);
+    TR_Glow_OnEntityDestroyed(entity);
+    TR_BaitRockDestroyed(entity);
+    TR_Rock_OnEntityDestroyed(entity);
+    TC_CombatOnEntityDestroyed(entity);
 }

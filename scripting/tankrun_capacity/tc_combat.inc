@@ -45,6 +45,7 @@ enum TCCombatAnimation
 #define TC_TANK_POSE_MOVE_Y 3
 #define TC_TANK_POSE_MOVE_X 4
 #define TC_TANK_FORWARD_ANIM_SPEED 220.0
+#define TC_ROCK_SETTLE_MAX_AGE 15.0
 
 enum struct TCCombatState
 {
@@ -58,10 +59,13 @@ enum struct TCCombatState
     float rockAlignedAt;
     float rockAim[3];
     float lastRockCycle;
+    float launchedRockAt;
     int attackTargetUid;
     int rockTurnTargetUid;
+    int rockThrowGen;
     int killerUid;
     int heldRockRef;
+    int launchedRockRef;
     int rockSequence;
     TCCombatAttack attack;
     TCCombatAnimation animation;
@@ -97,8 +101,80 @@ void TC_CombatRemoveHeldRock(int slot)
 void TC_CombatReset(int slot)
 {
     TC_CombatRemoveHeldRock(slot);
+#if defined TR_EMBEDDED_CAPACITY
+    TR_Glow_ClearReplicaTank(slot);
+#endif
     TCCombatState empty;
     g_TCCombat[slot] = empty;
+}
+
+void TC_CombatOnRockDetonate(int rock)
+{
+    if (rock <= MaxClients || !IsValidEntity(rock)) return;
+    int ref = EntIndexToEntRef(rock);
+    for (int slot = 0; slot < TC_MAX_REPLICAS; slot++)
+    {
+        if (g_TCCombat[slot].launchedRockRef == ref)
+        {
+            g_TCCombat[slot].launchedRockRef = 0;
+            g_TCCombat[slot].launchedRockAt = 0.0;
+        }
+    }
+}
+
+void TC_CombatOnEntityDestroyed(int entity)
+{
+    if (entity <= MaxClients) return;
+    int ref = EntIndexToEntRef(entity);
+    for (int slot = 0; slot < TC_MAX_REPLICAS; slot++)
+    {
+        if (g_TCCombat[slot].launchedRockRef == ref)
+        {
+            g_TCCombat[slot].launchedRockRef = 0;
+            g_TCCombat[slot].launchedRockAt = 0.0;
+        }
+    }
+}
+
+// 满员轮换投石/等待该石头结算保护（容量路径）。
+bool TC_CombatIsRockProtected(int slot, char[] reason = "", int reasonLen = 0)
+{
+    if (slot < 0 || slot >= TC_MAX_REPLICAS || g_TCCombat[slot].health <= 0.0) return false;
+    if (g_TCCombat[slot].attack == TC_ATTACK_ROCK)
+    {
+        if (reasonLen > 0) strcopy(reason, reasonLen, "补位投石起手/动作保护");
+        return true;
+    }
+    if (g_TCCombat[slot].rockTurnTargetUid != 0)
+    {
+        if (reasonLen > 0) strcopy(reason, reasonLen, "补位投石转向锁定保护");
+        return true;
+    }
+#if defined TR_EMBEDDED_CAPACITY
+    if (TR_BaitRockWaiting(g_TCEntityRefs[slot], slot))
+    {
+        if (reasonLen > 0) strcopy(reason, reasonLen, "补位原石等待当帧命中结算");
+        return true;
+    }
+#endif
+    int rockRef = g_TCCombat[slot].launchedRockRef;
+    if (rockRef != 0 && rockRef != INVALID_ENT_REFERENCE)
+    {
+        int rockEnt = EntRefToEntIndex(rockRef);
+        float elapsed = GetEngineTime() - g_TCCombat[slot].launchedRockAt;
+        if (rockEnt > MaxClients && IsValidEntity(rockEnt) && elapsed >= 0.0 && elapsed <= TC_ROCK_SETTLE_MAX_AGE)
+        {
+            char cls[24];
+            if (GetEntityClassname(rockEnt, cls, sizeof(cls)) && StrEqual(cls, "tank_rock"))
+            {
+                if (reasonLen > 0) strcopy(reason, reasonLen, "补位石头飞行待结算保护");
+                return true;
+            }
+        }
+        g_TCCombat[slot].launchedRockRef = 0;
+        g_TCCombat[slot].launchedRockAt = 0.0;
+    }
+    return false;
 }
 
 bool TC_CombatAnimate(int slot, int entity, TCCombatAnimation animation)
@@ -316,8 +392,9 @@ bool TC_CombatRocksEnabled()
         && GetFeatureStatus(FeatureType_Native, "L4D_TankRockPrj") == FeatureStatus_Available;
 }
 
-void TC_CombatClaw(int entity, int target, const float start[3], const float end[3])
+void TC_CombatClaw(int slot, int entity, int target, const float start[3], const float end[3])
 {
+    #pragma unused slot
     float distance = GetVectorDistance(start, end);
     if (distance > TC_CLAW_REACH || !TC_CombatClearShot(entity, target, start, end))
     {
@@ -337,7 +414,14 @@ void TC_CombatClaw(int entity, int target, const float start[3], const float end
     force[2] = 110.0;
     // The stock survivor damage code can assume an infected attacker is a player Tank.
     // Use world damage for the replica's scripted hit, as with its stock rock.
+#if defined TR_EMBEDDED_CAPACITY
+    bool wasAlive = TC_IsLivingSurvivor(target);
+    TR_Bait_BeginReplicaClawDamage(slot, target);
+#endif
     SDKHooks_TakeDamage(target, 0, 0, TC_CLAW_DAMAGE, DMG_CLUB, -1, force, start, false);
+#if defined TR_EMBEDDED_CAPACITY
+    TR_Bait_EndReplicaClawDamage(slot, target, wasAlive);
+#endif
     // Prop attackers do not get the player-Tank animation and punch impulse automatically.
     if (TC_IsLivingSurvivor(target) && !GetEntProp(target, Prop_Send, "m_isIncapacitated"))
     {
@@ -466,7 +550,7 @@ int TC_CombatLaunchRock(const float origin[3], const float velocity[3])
     return rock;
 }
 
-void TC_CombatThrow(int entity, int target, const float start[3], const float end[3])
+void TC_CombatThrow(int slot, int entity, int target, const float start[3], const float end[3])
 {
     if (!TC_CombatRocksEnabled() || !TC_CombatClearShot(entity, target, start, end))
     {
@@ -489,7 +573,15 @@ void TC_CombatThrow(int entity, int target, const float start[3], const float en
     }
     ScaleVector(velocity, force);
     velocity[2] += 150.0 + distance * 0.16;
-    TC_CombatLaunchRock(origin, velocity);
+    int rock = TC_CombatLaunchRock(origin, velocity);
+    if (rock > 0)
+    {
+        g_TCCombat[slot].launchedRockRef = EntIndexToEntRef(rock);
+        g_TCCombat[slot].launchedRockAt = GetEngineTime();
+#if defined TR_EMBEDDED_CAPACITY
+        TR_BaitRockReleased(slot, entity, rock);
+#endif
+    }
 }
 
 float TC_CombatRockCycle(int slot, int entity)
@@ -531,12 +623,19 @@ void TC_CombatTickRock(int slot, int entity)
 
     // This edge is consumed once. A delayed retry would release from a different pose.
     g_TCCombat[slot].applied = true;
+    g_TCCombat[slot].rockThrowGen = 0;
+#if defined TR_EMBEDDED_CAPACITY
+    TR_Glow_ClearReplicaTank(slot);
+#endif
     float origin[3], attachmentAngles[3];
     int attachment = LookupEntityAttachment(entity, "debris");
     bool attachmentReady = attachment > 0 && GetEntityAttachment(entity, attachment, origin, attachmentAngles);
     if (!TC_CombatRocksEnabled() || !attachmentReady)
     {
         TC_CombatRemoveHeldRock(slot);
+#if defined TR_EMBEDDED_CAPACITY
+        TR_BaitRockCancelReplicaWindup(slot);
+#endif
         g_TCCombat[slot].nextRock = GetGameTime() + 1.25;
         TC_CombatLogRock("补位投石取消：Tank实体 #%d seq=%d cycle=%.3f 原因=%s",
             entity, g_TCCombat[slot].rockSequence, cycle, attachmentReady ? "投石功能或接口已停用" : "读不到离手附件");
@@ -581,8 +680,13 @@ void TC_CombatTickRock(int slot, int entity)
         if (rock != 0) g_TCCombat[slot].firstRockPending = false;
         g_TCCombat[slot].nextRock = GetGameTime() + (rock != 0 ? GetRandomFloat(10.0, 16.0) : 1.25);
     }
-    if (rock > 0)
+    if (rock > 0 && EntRefToEntIndex(reference) == entity && g_TCEntityRefs[slot] == reference)
     {
+        g_TCCombat[slot].launchedRockRef = EntIndexToEntRef(rock);
+        g_TCCombat[slot].launchedRockAt = GetEngineTime();
+#if defined TR_EMBEDDED_CAPACITY
+        TR_BaitRockReleased(slot, entity, rock);
+#endif
         float rockOrigin[3];
         GetEntPropVector(rock, Prop_Data, "m_vecAbsOrigin", rockOrigin);
         TC_CombatLogRock("补位投石离手：Tank实体 #%d rock=%d 目标userid=%d seq=%d cycle=%.3f 预期=%.3f 附件偏差=%.1f 出生偏差=%.1f",
@@ -608,7 +712,13 @@ bool TC_CombatThink(int slot, int entity, int target, float now)
         bool managedRock = managed && g_TCCombat[slot].attack == TC_ATTACK_ROCK;
         if (managedRock)
         {
-            if (!g_TCCombat[slot].applied) TC_CombatTrackCommittedRock(slot, entity, attackTarget);
+            if (!g_TCCombat[slot].applied)
+            {
+                TC_CombatTrackCommittedRock(slot, entity, attackTarget);
+#if defined TR_EMBEDDED_CAPACITY
+                TR_Glow_UpdateReplicaTank(slot, entity, true, g_TCCombat[slot].attackTargetUid, g_TCCombat[slot].rockThrowGen);
+#endif
+            }
             float cycle = TC_CombatRockCycle(slot, entity);
             bool finished = cycle >= 0.97 && g_TCCombat[slot].applied;
             if (!finished && now < g_TCCombat[slot].attackEnd + 0.35) return true;
@@ -619,18 +729,52 @@ bool TC_CombatThink(int slot, int entity, int target, float now)
                     entity, g_TCCombat[slot].rockSequence, cycle);
             }
             TC_CombatRemoveHeldRock(slot);
+            g_TCCombat[slot].rockThrowGen = 0;
+#if defined TR_EMBEDDED_CAPACITY
+            TR_BaitRockCancelReplicaWindup(slot);
+            TR_Glow_ClearReplicaTank(slot);
+#endif
         }
         else
         {
+            if (g_TCCombat[slot].attack == TC_ATTACK_ROCK && !g_TCCombat[slot].applied)
+            {
+#if defined TR_EMBEDDED_CAPACITY
+                TR_Glow_UpdateReplicaTank(slot, entity, true, g_TCCombat[slot].attackTargetUid, g_TCCombat[slot].rockThrowGen);
+#endif
+            }
             if (!g_TCCombat[slot].applied && now >= g_TCCombat[slot].attackHit)
             {
                 g_TCCombat[slot].applied = true;
-                if (TC_IsLivingSurvivor(attackTarget))
+                if (g_TCCombat[slot].attack == TC_ATTACK_CLAW)
                 {
-                    float start[3], end[3];
-                    TC_CombatGetShot(entity, attackTarget, start, end);
-                    if (g_TCCombat[slot].attack == TC_ATTACK_CLAW) TC_CombatClaw(entity, attackTarget, start, end);
-                    else TC_CombatThrow(entity, attackTarget, start, end);
+                    if (TC_IsLivingSurvivor(attackTarget))
+                    {
+                        float start[3], end[3];
+                        TC_CombatGetShot(entity, attackTarget, start, end);
+                        TC_CombatClaw(slot, entity, attackTarget, start, end);
+                    }
+#if defined TR_EMBEDDED_CAPACITY
+                    if (TR_Bait_OnReplicaClawSettled(slot, entity))
+                    {
+                        TC_RemoveReplica(slot);
+                        return true;
+                    }
+#endif
+                }
+                else
+                {
+                    if (TC_IsLivingSurvivor(attackTarget))
+                    {
+                        float start[3], end[3];
+                        TC_CombatGetShot(entity, attackTarget, start, end);
+                        TC_CombatThrow(slot, entity, attackTarget, start, end);
+                    }
+                    g_TCCombat[slot].rockThrowGen = 0;
+#if defined TR_EMBEDDED_CAPACITY
+                    TR_BaitRockCancelReplicaWindup(slot);
+                    TR_Glow_ClearReplicaTank(slot);
+#endif
                 }
             }
             if (now < g_TCCombat[slot].attackEnd) return true;
@@ -724,6 +868,9 @@ bool TC_CombatThink(int slot, int entity, int target, float now)
         g_TCCombat[slot].attackHit = now + 0.605;
         g_TCCombat[slot].attackEnd = now + 1.185;
         g_TCCombat[slot].nextClaw = now + 1.6;
+#if defined TR_EMBEDDED_CAPACITY
+        TR_Bait_OnReplicaClawStart(slot, entity, target);
+#endif
         TC_CombatAnimate(slot, entity, TC_ANIM_CLAW);
     }
     else
@@ -736,6 +883,11 @@ bool TC_CombatThink(int slot, int entity, int target, float now)
             g_TCCombat[slot].nextRock = now + GetRandomFloat(10.0, 16.0);
             TC_CombatAnimate(slot, entity, TC_ANIM_ROCK);
         }
+#if defined TR_EMBEDDED_CAPACITY
+        TR_BaitRockReplicaWindup(slot, g_TCCombat[slot].attackTargetUid);
+        g_TCCombat[slot].rockThrowGen = TR_Glow_AllocThrowGen();
+        TR_Glow_UpdateReplicaTank(slot, entity, true, g_TCCombat[slot].attackTargetUid, g_TCCombat[slot].rockThrowGen);
+#endif
     }
     return true;
 }

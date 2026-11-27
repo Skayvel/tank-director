@@ -52,6 +52,16 @@ Valve / Left 4 Dead 2 (game files, models, animation data, engine signatures)
     Copyright (C) Valve Corporation. All rights reserved.
     Usage  : no game files are distributed. See section 3.
 
+First Map - Skip Intro Cutscenes (l4d_skip_intro.sp v1.14, design reference)
+    Copyright (C) 2022 SilverShot / Silvers
+    License: GNU GPL version 3.0 or later.
+    Usage  : referenced for L4D2 intro camera entity I/O mechanics
+             (`point_viewcontrol_*` StartMovement + `info_director`
+             ReleaseSurvivorPositions/FinishIntro) in `scripting/tankrun/tr_flow.inc`;
+             reimplemented cleanly with Tank Run scope guards and
+             `L4D_OnFinishIntro` convergence.
+    Upstream: <https://forums.alliedmods.net/showthread.php?t=321993>
+
 ================================================================================
 2. Relationship to the GPL
 ================================================================================
@@ -74,6 +84,23 @@ Valve / Left 4 Dead 2 (game files, models, animation data, engine signatures)
 `gamedata/tankrun_firstrock.txt` contains a 40-byte x86 instruction pattern
 with wildcards, used by the Dynamic Hooks extension to locate
 `CTankClaw::PrimaryAttack` in a specific build of `server.dll`.
+
+`gamedata/tankrun_wipe.txt` contains a single structure member offset
+(`CDirector::m_RestartTimer = 616` / `0x268`) for the same Windows x86 build
+of `server.dll`, verified against `CDirector::EndScenario` (VA `0x10269079`)
+and `CDirector::UpdateScenarioState` (VA `0x10271bfd`). Runtime code validates
+both duration (~7.0s) and remaining time (~7.0s) before writing and falls back
+safely to stock behavior on any mismatch.
+
+`gamedata/tankrun_rocktarget.txt` contains a 43-byte x86 instruction pattern
+and two verified integer offsets (`TankAttack::m_hTarget = 52` / `0x34` and
+`TankAttack::ThrowRockHelper_ReadTargetRel = 216` / `0xd8`) used by a read-only
+Dynamic Hooks detour on `TankAttack::ThrowRockHelper` (VA `0x10472d00`) for the
+same Windows x86 build of `server.dll` (`PatchVersion 2.2.4.3`, size `9,130,288`,
+SHA-256 `a93ec916a8f26fbea85688c321d2ba8dd346d435fab09a0b926dd950c2e1ea12`).
+Runtime code performs strict OS, signature, offset, and read-only entry/internal
+instruction byte checks before enabling the detour and disables the native rock
+target glow path safely on any mismatch.
 
 * It contains no game code, data files, assets, symbols or decompiled source.
 * It was derived from static analysis of a legitimately installed copy of the

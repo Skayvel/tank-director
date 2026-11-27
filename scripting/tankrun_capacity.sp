@@ -126,11 +126,48 @@ public void OnPluginStart() { TC_OnPluginStart(); }
 public void OnMapStart() { TC_OnMapStart(); }
 public void OnMapEnd() { TC_OnMapEnd(); }
 public void OnPluginEnd() { TC_OnPluginEnd(); }
+public void OnEntityDestroyed(int entity) { TC_CombatOnEntityDestroyed(entity); }
+public void L4D_TankRock_OnDetonate(int tank, int rock)
+{
+    #pragma unused tank
+    TC_CombatOnRockDetonate(rock);
+}
 #endif
 
 int TC_GetLiveReplicas()
 {
     return g_TCLiveReplicas;
+}
+
+stock int TC_CollectLiveReplicas(int[] slots, int[] births, float[] bornAt, int maxlen)
+{
+    int count = 0;
+    for (int slot = 0; slot < TC_MAX_REPLICAS && count < maxlen; slot++)
+    {
+        if (g_TCActorBirths[slot] <= 0 || TC_CombatHealth(slot) <= 0) continue;
+        int ent = EntRefToEntIndex(g_TCEntityRefs[slot]);
+        if (ent <= MaxClients || !IsValidEntity(ent)) continue;
+        slots[count] = slot;
+        births[count] = g_TCActorBirths[slot];
+        bornAt[count] = g_TCActorBornAt[slot];
+        count++;
+    }
+    return count;
+}
+
+bool TC_IsReplicaRockProtected(int slot, char[] reason = "", int reasonLen = 0)
+{
+    return TC_CombatIsRockProtected(slot, reason, reasonLen);
+}
+
+stock bool TC_RetireReplicaSlot(int slot)
+{
+    if (!TC_ManagedMode() || slot < 0 || slot >= TC_MAX_REPLICAS) return false;
+    if (g_TCEntityRefs[slot] == 0 || g_TCActorBirths[slot] <= 0 || TC_CombatHealth(slot) <= 0) return false;
+    int ent = EntRefToEntIndex(g_TCEntityRefs[slot]);
+    if (ent <= MaxClients || !IsValidEntity(ent)) return false;
+    TC_RemoveReplica(slot);
+    return true;
 }
 
 int TC_TrySpawnManagedAt(const float pos[3], const float ang[3])
@@ -146,7 +183,7 @@ int TC_TrySpawnManagedAt(const float pos[3], const float ang[3])
     return TC_CreateReplica(pos, ang);
 }
 
-int TC_GetOldestReplicaSlot()
+stock int TC_GetOldestReplicaSlot()
 {
     int oldest = -1;
     for (int slot = 0; slot < TC_MAX_REPLICAS; slot++)
@@ -159,14 +196,14 @@ int TC_GetOldestReplicaSlot()
     return oldest;
 }
 
-float TC_GetOldestReplicaTime()
+stock float TC_GetOldestReplicaTime()
 {
     if (!TC_ManagedMode()) return -1.0;
     int slot = TC_GetOldestReplicaSlot();
     return slot < 0 ? -1.0 : g_TCActorBornAt[slot];
 }
 
-bool TC_RetireOldestReplica()
+stock bool TC_RetireOldestReplica()
 {
     if (!TC_ManagedRoundReady()) return false;
     int slot = TC_GetOldestReplicaSlot();
@@ -650,6 +687,11 @@ void TC_RemoveReplica(int slot)
     g_TCTargetUid[slot] = 0;
     g_TCNextTarget[slot] = 0.0;
     g_TCLiveReplicas--;
+#if defined TR_EMBEDDED_CAPACITY
+    TR_Bait_OnReplicaRemoved(slot);
+    TR_BaitRockOnReplicaRemoved(slot);
+    TR_Glow_ClearReplicaTank(slot);
+#endif
     TC_CombatReset(slot);
     TC_NavReset(slot);
     if (ent > MaxClients && IsValidEntity(ent))
@@ -702,19 +744,52 @@ int TC_CreateReplica(const float pos[3], const float ang[3])
     g_TCActorBirths[slot] = ++g_TCNextBirth;
     g_TCActorBornAt[slot] = GetGameTime();
     g_TCLiveReplicas++;
+#if defined TR_EMBEDDED_CAPACITY
+    TR_Bait_OnReplicaCreated(slot);
+#endif
     TC_NavReset(slot);
     if (!TC_CombatAttach(slot, ent, g_TCHealth))
     {
         TC_RemoveReplica(slot);
         return 0;
     }
+#if defined TR_EMBEDDED_CAPACITY
+    if (TR_FeatureEnabled())
+    {
+        TR_NotifyTankSpawnSound();
+    }
+#endif
     return ent;
+}
+
+#if !defined TR_EMBEDDED_CAPACITY
+bool TC_IsNativeTankRockProtectedStandalone(int client)
+{
+    if (!TC_IsNativeTank(client)) return false;
+    if (HasEntProp(client, Prop_Send, "m_nSequence"))
+    {
+        int seq = GetEntProp(client, Prop_Send, "m_nSequence");
+        if (seq >= 48 && seq <= 51) return true;
+    }
+    return false;
+}
+#endif
+
+bool TC_CanNativeTankReleaseSlot(int client)
+{
+    if (!TC_IsNativeTank(client) || IsClientInKickQueue(client)) return false;
+    if (GetClientHealth(client) <= 0) return false;
+    if (HasEntProp(client, Prop_Send, "m_lifeState") && GetEntProp(client, Prop_Send, "m_lifeState") != 0) return false;
+    return true;
 }
 
 bool TC_RotateTank(int mode, float pos[3])
 {
-    int birth, nativeClient;
-    int actorSlot = -1;
+    bool candIsReplica[MAXPLAYERS + TC_MAX_REPLICAS];
+    int candId[MAXPLAYERS + TC_MAX_REPLICAS];
+    int candBirth[MAXPLAYERS + TC_MAX_REPLICAS];
+    int candCount = 0;
+
     for (int i = 1; i <= MaxClients; i++)
     {
         if (!TC_IsNativeTank(i)) continue;
@@ -723,43 +798,89 @@ bool TC_RotateTank(int mode, float pos[3])
             // Exact birth order is required before retiring an existing Tank.
             return false;
         }
-        int candidate = g_TCNativeBirths[i];
-        if (birth == 0 || (mode == 2 ? candidate > birth : candidate < birth))
-        {
-            birth = candidate;
-            nativeClient = i;
-        }
+        if (!TC_CanNativeTankReleaseSlot(i)) continue;
+        candIsReplica[candCount] = false;
+        candId[candCount] = i;
+        candBirth[candCount] = g_TCNativeBirths[i];
+        candCount++;
     }
     for (int i = 0; i < TC_MAX_REPLICAS; i++)
     {
         int candidate = g_TCActorBirths[i];
         if (candidate <= 0 || TC_CombatHealth(i) <= 0 || g_TCEntityRefs[i] == 0) continue;
-        if (birth == 0 || (mode == 2 ? candidate > birth : candidate < birth))
+        int ent = EntRefToEntIndex(g_TCEntityRefs[i]);
+        if (ent <= MaxClients || !IsValidEntity(ent)) continue;
+        candIsReplica[candCount] = true;
+        candId[candCount] = i;
+        candBirth[candCount] = candidate;
+        candCount++;
+    }
+    if (candCount == 0) return false;
+
+    // 严格沿用原配置顺序（mode==2 最新优先，否则最老优先；不引入倒序反转）
+    for (int a = 0; a < candCount - 1; a++)
+    {
+        for (int b = a + 1; b < candCount; b++)
         {
-            birth = candidate;
-            actorSlot = i;
+            bool swap = (mode == 2) ? (candBirth[b] > candBirth[a]) : (candBirth[b] < candBirth[a]);
+            if (swap)
+            {
+                bool tRep = candIsReplica[a]; candIsReplica[a] = candIsReplica[b]; candIsReplica[b] = tRep;
+                int tId = candId[a]; candId[a] = candId[b]; candId[b] = tId;
+                int tBirth = candBirth[a]; candBirth[a] = candBirth[b]; candBirth[b] = tBirth;
+            }
         }
     }
-    if (actorSlot >= 0)
-    {
-        TC_RemoveReplica(actorSlot);
-        bool spawned = TC_CreateReplica(pos, NULL_VECTOR) > 0;
-        LogMessage("[TankCapacity] Rotation mode=%d actor birth=%d retired=1 replacement=%d.", mode, birth, spawned);
-        return spawned;
-    }
-    if (nativeClient <= 0) return false;
 
-    int uid = GetClientUserId(nativeClient);
-    ForcePlayerSuicide(nativeClient);
-    bool retired = GetClientOfUserId(uid) != nativeClient || !TC_IsNativeTank(nativeClient);
-    if (retired && GetClientOfUserId(uid) == nativeClient && IsClientInGame(nativeClient)
-        && IsFakeClient(nativeClient) && !IsPlayerAlive(nativeClient) && !IsClientInKickQueue(nativeClient))
+    int skipped = 0;
+    for (int i = 0; i < candCount; i++)
     {
-        KickClient(nativeClient, "Tank Run rotation released a bot slot");
+        int birth = candBirth[i];
+        if (candIsReplica[i])
+        {
+            int actorSlot = candId[i];
+            char reason[64];
+            if (TC_IsReplicaRockProtected(actorSlot, reason, sizeof(reason)))
+            {
+                skipped++;
+                continue;
+            }
+            TC_RemoveReplica(actorSlot);
+            bool spawned = TC_CreateReplica(pos, NULL_VECTOR) > 0;
+            LogMessage("[TankCapacity] Rotation mode=%d actor birth=%d skipped=%d retired=1 replacement=%d.", mode, birth, skipped, spawned);
+            return spawned;
+        }
+        int nativeClient = candId[i];
+        bool protectedNative = false;
+#if defined TR_EMBEDDED_CAPACITY
+        protectedNative = TR_IsNativeTankRockProtected(nativeClient);
+#else
+        protectedNative = TC_IsNativeTankRockProtectedStandalone(nativeClient);
+#endif
+        if (protectedNative)
+        {
+            skipped++;
+            continue;
+        }
+        int uid = GetClientUserId(nativeClient);
+        ForcePlayerSuicide(nativeClient);
+        bool retired = GetClientOfUserId(uid) != nativeClient || !TC_IsNativeTank(nativeClient);
+        if (!retired)
+        {
+            continue;
+        }
+        if (GetClientOfUserId(uid) == nativeClient && IsClientInGame(nativeClient)
+            && IsFakeClient(nativeClient) && !IsPlayerAlive(nativeClient) && !IsClientInKickQueue(nativeClient))
+        {
+            KickClient(nativeClient, "Tank Run rotation released a bot slot");
+        }
+        // The stock scheduler will refill a retired native bot using the native spawn path.
+        LogMessage("[TankCapacity] Rotation mode=%d native birth=%d userid=%d skipped=%d retired=1; stock scheduler refills.", mode, birth, uid, skipped);
+        return true;
     }
-    // The stock scheduler will refill a retired native bot using the native spawn path.
-    LogMessage("[TankCapacity] Rotation mode=%d native birth=%d userid=%d retired=%d; stock scheduler refills.", mode, birth, uid, retired);
-    return retired;
+
+    LogMessage("[TankCapacity] Rotation deferred: mode=%d all %d candidates protected or unable to release slot (skipped=%d).", mode, candCount, skipped);
+    return false;
 }
 
 int TC_SelectTarget(int ent)

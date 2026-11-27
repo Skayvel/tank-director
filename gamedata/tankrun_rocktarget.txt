@@ -1,0 +1,123 @@
+"Games"
+{
+    "left4dead2"
+    {
+        "Signatures"
+        {
+            "TankRun::TankAttack::ThrowRockHelper"
+            {
+                "library"  "server"
+                // Steam Windows x86 server.dll (PatchVersion 2.2.4.3, size 9130288,
+                // SHA-256 a93ec916a8f26fbea85688c321d2ba8dd346d435fab09a0b926dd950c2e1ea12).
+                // Verified unique (1/1) at VA 0x10472d00 (file offset 0x00472100).
+                // __thiscall void TankAttack::ThrowRockHelper(TankAttack* this, Tank* tank)
+                // Read-only DHooks detour: observes [TankAttack + 0x34] (CHandle<CBaseEntity> m_hTarget)
+                // after strict OS + entry/instruction byte verification; falls back safely on any mismatch.
+                "windows"  "\x55\x8B\xEC\x83\xEC\x3C\xA1\x2A\x2A\x2A\x2A\x83\x78\x30\x00\x57\x8B\xF9\x89\x7D\xFC\x0F\x84\x2A\x2A\x2A\x2A\x8B\x0D\x2A\x2A\x2A\x2A\x56\xE8\x2A\x2A\x2A\x2A\x84\xC0\x75\x34"
+            }
+
+            "TankRun::TankBehavior::Update"
+            {
+                "library"  "server"
+                // Verified unique (1/1) at VA 0x10474280 (file offset 0x00473680).
+                // __thiscall ActionResult<Tank> TankBehavior::Update(TankBehavior* this, ActionResult* sret, Tank* me, float interval)
+                // Read-only DHooks detour (Pre+Post) to observe real AI Tank melee decisions against primary threat.
+                "windows"  "\x55\x8B\xEC\x83\xEC\x08\x56\x8B\x75\x0C\x8B\x06\x8B\x90\x9C\x00\x00\x00\x8B\xCE\xFF\xD2\x84\xC0\x0F\x85\x14\x01\x00\x00\x8B\x86\x40\x40\x00\x00"
+            }
+
+            "TankRun::TankBehavior::OnContact"
+            {
+                "library"  "server"
+                // Verified unique (1/1) at VA 0x104743d0 (file offset 0x004737d0).
+                // __thiscall EventDesiredResult<Tank> TankBehavior::OnContact(TankBehavior* this, EventDesiredResult* sret, Tank* me, CBaseEntity* other, CGameTrace* trace)
+                // Read-only DHooks detour (Pre+Post) to distinguish prop/door contact punches from survivor contact punches.
+                "windows"  "\x55\x8B\xEC\x83\xEC\x18\xF6\x05\x2A\x2A\x2A\x2A\x01\x75\x11\x83\x0D\x2A\x2A\x2A\x2A\x01\xC7\x05\x2A\x2A\x2A\x2A\x2A\x2A\x2A\x2A\x56\x8B\x75\x10\x85\xF6\x0F\x84\xF8\x03\x00\x00\x53\x8B\x5D\x0C\x8B\xCB"
+            }
+
+            "TankRun::NextBotPlayer::PressMeleeButton"
+            {
+                "library"  "server"
+                // Verified unique (1/1) at VA 0x10396730 (file offset 0x00395b30).
+                // __thiscall void NextBotPlayer<CTerrorPlayer>::PressMeleeButton(INextBotPlayerInput* this, float duration)
+                // Read-only DHooks detour (Pre) to capture the exact causal source of AI Tank melee presses.
+                "windows"  "\x55\x8B\xEC\x51\x83\x49\x04\x01\x56\x57\x8D\x79\x0C\x8B\xCF\xE8\x2A\x2A\x2A\x2A\xD8\x45\x08\x8D\x77\x08\xD9\x55\xFC\xD9\x06"
+            }
+
+            "TankRun::CFuelBarrelProp::Explode"
+            {
+                "library"  "server"
+                // Verified unique (1/1) at VA 0x102c0940 (file offset 0x002bfd40).
+                // __thiscall void CFuelBarrelProp::Explode(CFuelBarrelProp* this)
+                // Read-only DHooks detour (Pre+Post) to scope fuel-barrel primary inferno & piece creation to exact C++ call stack.
+                "windows"  "\x55\x8B\xEC\x81\xEC\x18\x01\x00\x00\xA1\x2A\x2A\x2A\x2A\x33\xC5\x89\x45\xFC\x53\x56\x8B\xF1\x8B\x86\x38\x01\x00\x00\xC1\xE8\x0B\x57\xA8\x01\x74\x05\xE8\x2A\x2A\x2A\x2A\x8B\x96\x6C\x03\x00\x00"
+            }
+
+            "TankRun::CFuelBarrelPiece::SpawnFire"
+            {
+                "library"  "server"
+                // Verified unique (1/1) at VA 0x102bfd90 (file offset 0x002bf190).
+                // __thiscall void CFuelBarrelPiece::SpawnFire(CFuelBarrelPiece* this)
+                // Read-only DHooks detour (Pre+Post) to scope fuel-barrel flying-piece secondary inferno creation to exact C++ call stack.
+                "windows"  "\x55\x8B\xEC\x83\xEC\x18\x53\x56\x8B\xF1\x8B\x86\x38\x01\x00\x00\xC1\xE8\x0B\x57\xA8\x01\x74\x05\xE8\x2A\x2A\x2A\x2A\x8B\x8E\x38\x01\x00\x00\xC1\xE9\x0B\xF6\xC1\x01\x74\x07\x8B\xCE\xE8\x2A\x2A\x2A\x2A\x6A\x00\x8D\x96\x68\x03\x00\x00\x52"
+            }
+        }
+
+        "Offsets"
+        {
+            // TankAttack::m_hTarget (32-bit CBaseHandle / EHANDLE) consumed at ThrowRockHelper+0xd8
+            // (`8B F7 83 C6 34 8B CE E8` = mov esi, edi; add esi, 0x34; mov ecx, esi; call CHandle::Get).
+            "TankAttack::m_hTarget"
+            {
+                "windows"  "52"
+            }
+
+            // Relative byte offset inside ThrowRockHelper where the +0x34 CHandle::Get sequence appears.
+            "TankAttack::ThrowRockHelper_ReadTargetRel"
+            {
+                "windows"  "216"
+            }
+
+            // INextBotPlayerInput subobject offset inside NextBotPlayer<CTerrorPlayer> (Tank): 0x4270.
+            "Tank::m_pPlayerInput"
+            {
+                "windows"  "17008"
+            }
+
+            // IBody* (PlayerBody*) pointer offset inside NextBotPlayer<CTerrorPlayer> (Tank): INextBot(+0x4040) + 0x2f0 = 0x4330.
+            "Tank::m_pBodyInterface"
+            {
+                "windows"  "17200"
+            }
+
+            // IVision* (ZombieBotVision*) pointer offset inside NextBotPlayer<CTerrorPlayer> (Tank): INextBot(+0x4040) + 0x2fc = 0x433c.
+            "Tank::m_pVisionInterface"
+            {
+                "windows"  "17212"
+            }
+
+            // ZombieBotVision::m_hPrimaryThreat (32-bit CBaseHandle) read by GetPrimaryKnownThreat (+0xb0): 0x148.
+            "ZombieBotVision::m_hPrimaryThreat"
+            {
+                "windows"  "328"
+            }
+
+            // PlayerBody::m_lookAtExpireTimer.m_timestamp (float) written by PlayerBody::AimHeadTowards: 0x6c.
+            "PlayerBody::m_lookAtExpire"
+            {
+                "windows"  "108"
+            }
+
+            // PlayerBody::m_lookAtReply (INextBotReply*) written by PlayerBody::AimHeadTowards: 0x78.
+            "PlayerBody::m_lookAtReply"
+            {
+                "windows"  "120"
+            }
+
+            // CFuelBarrelProp::m_hAttacker (32-bit CBaseHandle) read by CFuelBarrelProp::Explode (+0x7ca): 0x16a4.
+            "CFuelBarrelProp::m_hAttacker"
+            {
+                "windows"  "5796"
+            }
+        }
+    }
+}
